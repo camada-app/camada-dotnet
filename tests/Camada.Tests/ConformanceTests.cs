@@ -234,3 +234,25 @@ public class TestInterleaved
         }
     }
 }
+
+public class TestHdrsBitmask
+{
+    private static readonly JsonElement HdrsFx = Fixtures.ReadJson("blk3/hdrs.json");
+
+    [Fact]
+    public void PinsTheExactHeaderOrder() =>
+        Assert.Equal(HdrsFx.GetProperty("hdrs").EnumerateArray().Select(e => e.GetString()!).ToArray(), Camada.Events.Builder.Hdrs);
+
+    [Fact]
+    public void HmVectors()
+    {
+        foreach (var c in HdrsFx.GetProperty("cases").EnumerateArray())
+        {
+            var names = c.GetProperty("names").EnumerateArray().Select(e => e.GetString()!).ToList();
+            var ev = Camada.Events.Builder.BuildWireEvent(
+                new Camada.Events.RequestInfo("GET", "x.test", "/", "", names.Select(n => new KeyValuePair<string, string>(n, "v")).ToList(), "1.2.3.4", null),
+                tap: "sdk-node", rid: "r");
+            Assert.True(c.GetProperty("hm").GetInt32() == (int)ev["hm"]!, string.Join("+", names));
+        }
+    }
+}
