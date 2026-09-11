@@ -633,8 +633,9 @@ public class FailOpenTests
     [Fact]
     public void TheReadmeWarmUpWaitsForTheBootPoll()
     {
-        // The README's startup recipe: the engine build has already kicked the boot poll, so a plain Refresh()
-        // finds the slot taken and returns cold; waiting on Verdict() until it is not cold is what warms it.
+        // The README's startup recipe: the engine build has already kicked the boot poll; waiting on Verdict()
+        // until it is not cold is the bounded warm-up (a synchronous Refresh() would wait behind that poll and
+        // then poll once more, on the network, before the app can start).
         var a = new FakeAnalyst();
         var engine = Hosts.EngineWith(a);
         try

@@ -41,7 +41,7 @@ public sealed class SnapshotClient
     private readonly bool _pinned;
     private string? _etag;
     private long _loadedAt;                            // Environment.TickCount64 of the last accepted answer
-    private volatile bool _loaded;
+    private volatile bool _loaded;                     // an answer has been applied: the matcher (or its absence) is final
     private readonly SemaphoreSlim _loading = new(1, 1);
     private readonly object _timerLock = new();
     private CancellationTokenSource? _stop;
@@ -142,13 +142,11 @@ public sealed class SnapshotClient
         _ = Task.Run(() => LoadGuarded(release: true));
     }
 
-    /// <summary>One synchronous poll (single in-flight): what the loop calls, and what tests and warm-ups call directly.</summary>
+    /// <summary>One synchronous poll: what tests and warm-ups call directly. It waits behind a poll already in
+    /// flight (the boot poll, a timer tick) rather than skipping, so when it returns a poll has just completed.</summary>
     public void Refresh()
     {
-        if (!_loading.Wait(0))
-        {
-            return;
-        }
+        _loading.Wait();
         LoadGuarded(release: true);
     }
 
@@ -192,16 +190,17 @@ public sealed class SnapshotClient
             return;   // 401/5xx/network: keep what we have
         }
         Interlocked.Exchange(ref _loadedAt, Environment.TickCount64);
-        _loaded = true;
         ReadConfig(res.Headers.GetValueOrDefault("x-camada-config"));
         if (res.Status == 304)
         {
+            _loaded = true;
             return;
         }
         if (res.Status == 204)   // no snapshot published: enforce nothing
         {
             _matcher = null;
             _etag = null;
+            _loaded = true;
             return;
         }
         var body = res.Body;
@@ -228,6 +227,8 @@ public sealed class SnapshotClient
         // ParseSnapshot throws on corrupt data -> caught by LoadGuarded, previous kept
         _matcher = new Matcher(Parser.ParseSnapshot(new ReadOnlyMemory<byte>(body, 4 + metaLen, body.Length - 4 - metaLen), root));
         _etag = etag;
+        // not cold only once the matcher is in place: a reader that sees "loaded" must see the snapshot too
+        _loaded = true;
     }
 
     private void ReadConfig(string? raw)

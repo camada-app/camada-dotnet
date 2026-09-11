@@ -131,12 +131,11 @@ public class QueueTests
         var a = new FakeAnalyst();
         var q = Queue(a, flushS: 0.01);
         q.Push(Row("i", 1));
+        ClientTests.WaitUntil(() => a.Events.Count == 1);   // the interval flush ran
         q.Stop();
-        Thread.Sleep(30);
-        var n = a.Events.Count;
         q.Push(Row("i", 2));
-        Thread.Sleep(30);
-        Assert.Equal(n, a.Events.Count);   // nothing flushes on its own after Stop()
+        Thread.Sleep(50);
+        Assert.Single(a.Events);   // nothing flushes on its own after Stop()
     }
 
     [Fact]
