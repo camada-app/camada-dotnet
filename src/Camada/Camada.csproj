@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LangVersion>12</LangVersion>
+    <RootNamespace>Camada</RootNamespace>
+    <AssemblyName>Camada</AssemblyName>
+    <PackageId>Camada</PackageId>
+    <!-- The SDK's wire identity (SDK-03): x-camada-sdk: @camada/dotnet/<Version>. This element is the single
+         source the sibling drift guards (camada-backend, camada-web, camada-mkt) parse, and CamadaVersion.cs
+         repeats it; VersionTests holds the two together. Plain X.Y.Z only: the analyst's SDK_RE is strict. -->
+    <Version>0.1.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Authors>camada</Authors>
+    <Description>camada SDK for .NET: inline enforcement of your snapshot (ordered custom rules, then allow, block, challenge), first-party beacon and proof-of-work challenge, batched event shipping. ASP.NET Core middleware.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources/b.js" LogicalName="Camada.Resources.b.js" />
+    <EmbeddedResource Include="Resources/beacon.json" LogicalName="Camada.Resources.beacon.json" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Camada.Tests" />
+  </ItemGroup>
+
+</Project>
