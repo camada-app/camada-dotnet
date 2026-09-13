@@ -4,6 +4,7 @@ using System.Net;
 using System.Text;
 using Camada.AspNetCore;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace Camada.Tests;
 
@@ -76,6 +77,26 @@ public class MiddlewareTests
         var r = h.Call("POST", "/__camada/challenge", body: Encoding.UTF8.GetBytes(big), peer: null);
         Assert.Equal("ok", r.Text);
         Assert.Equal(new[] { big }, got);
+    }
+
+    [Fact]
+    public void ABodyCamadaReadIsRewoundThroughEnableBuffering()
+    {
+        // The one path where camada reads a body and then runs the app: a verify POST under the cap with no
+        // resolvable ip (no challenge without one). Kestrel's body cannot seek, so Request.EnableBuffering()
+        // has to wrap it, and the rewind after camada's partial read runs against that wrapper.
+        var form = "nonce=" + new string('n', 3000) + "&solution=1";
+        var got = new List<string>();
+        using var h = new Host(new FakeAnalyst(), handler: async ctx =>
+        {
+            using var reader = new StreamReader(ctx.Request.Body);
+            got.Add(await reader.ReadToEndAsync());
+            await ctx.Response.Body.WriteAsync("ok"u8.ToArray());
+        });
+        var r = h.Call("POST", "/__camada/challenge", body: Encoding.UTF8.GetBytes(form), peer: null, seekable: false);
+        Assert.Equal("ok", r.Text);
+        Assert.Equal(new[] { form }, got);
+        Assert.IsType<FileBufferingReadStream>(h.Seen.Single().Request.Body);
     }
 
     [Fact]

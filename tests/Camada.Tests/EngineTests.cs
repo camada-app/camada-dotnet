@@ -488,7 +488,7 @@ public class ChallengeFlowTests
     }
 
     [Fact]
-    public void WrongSolutionOrForgedNonceReservesThePage()
+    public void WrongSolutionOrForgedNonceServesThePageAgain()
     {
         using var h = new Host(V4());
         var nonce = EngineFx.Nonce(h.Call("GET", "/", EngineFx.Html, peer: FakeAnalyst.ChallengedIp).Text);
@@ -641,12 +641,8 @@ public class FailOpenTests
         try
         {
             Assert.NotNull(engine.Snap);
-            var deadline = Environment.TickCount64 + 5000;
-            while (engine.Snap!.Verdict(new Snapshot.MatchInput { Ip = "0.0.0.0" }).Reason == "cold" && Environment.TickCount64 < deadline)
-            {
-                Thread.Sleep(10);
-            }
-            Assert.True(engine.Snap.Verdict(new Snapshot.MatchInput { Ip = FakeAnalyst.BlockedIp }).Block);
+            Hosts.WaitUntil(() => engine.Snap!.Verdict(new Snapshot.MatchInput { Ip = "0.0.0.0" }).Reason != "cold", ms: 5000);
+            Assert.True(engine.Snap!.Verdict(new Snapshot.MatchInput { Ip = FakeAnalyst.BlockedIp }).Block);
         }
         finally
         {

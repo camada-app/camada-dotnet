@@ -34,7 +34,7 @@ public class QueueTests
         {
             q.Push(Row("i", i));
         }
-        ClientTests.WaitUntil(() => a.Events.Count > 0);
+        Hosts.WaitUntil(() => a.Events.Count > 0);
         Assert.Equal("0,1,2", Flat(a));
         q.Stop();
     }
@@ -45,7 +45,7 @@ public class QueueTests
         var a = new FakeAnalyst();
         var q = Queue(a, flushS: 0.02);
         q.Push(Row("i", 1));
-        ClientTests.WaitUntil(() => a.Events.Count > 0);
+        Hosts.WaitUntil(() => a.Events.Count > 0);
         Assert.Equal("1", Flat(a));
         q.Stop();
     }
@@ -131,7 +131,7 @@ public class QueueTests
         var a = new FakeAnalyst();
         var q = Queue(a, flushS: 0.01);
         q.Push(Row("i", 1));
-        ClientTests.WaitUntil(() => a.Events.Count == 1);   // the interval flush ran
+        Hosts.WaitUntil(() => a.Events.Count == 1);   // the interval flush ran
         q.Stop();
         q.Push(Row("i", 2));
         Thread.Sleep(50);
@@ -151,7 +151,7 @@ public class QueueTests
             return inner(req);
         };
         q.Push(Row("i", 1));
-        ClientTests.WaitUntil(() => q.InFlight);
+        Hosts.WaitUntil(() => q.InFlight);
         q.Push(Row("i", 2));
         q.Flush();   // the request-path flush yields to the one in flight
         Assert.Empty(a.Events);

@@ -20,13 +20,14 @@ public class ExtensionsTests : IDisposable
     private sealed class Lifetime : IHostApplicationLifetime
     {
         public readonly CancellationTokenSource Stopping = new();
+        public readonly CancellationTokenSource Stopped = new();
         public CancellationToken ApplicationStarted => CancellationToken.None;
         public CancellationToken ApplicationStopping => Stopping.Token;
-        public CancellationToken ApplicationStopped => CancellationToken.None;
+        public CancellationToken ApplicationStopped => Stopped.Token;
         public void StopApplication() => Stopping.Cancel();
     }
 
-    private (RequestDelegate App, IServiceProvider Services, Lifetime Lifetime) Build(Func<HttpContext, Task> handler, Dictionary<string, string?>? env = null)
+    private (RequestDelegate App, IServiceProvider Services, Lifetime Lifetime) Build(Func<HttpContext, Task> handler, Dictionary<string, string?>? env = null, Action<CamadaOptions>? configure = null)
     {
         var services = new ServiceCollection();
         var lifetime = new Lifetime();
@@ -40,6 +41,7 @@ public class ExtensionsTests : IDisposable
         {
             o.Env = merged;
             o.Transport = _a.Transport;
+            configure?.Invoke(o);
         });
         var sp = services.BuildServiceProvider();
         var app = new ApplicationBuilder(sp);
@@ -173,6 +175,20 @@ public class ExtensionsTests : IDisposable
         Assert.Empty(_a.Events);
         lifetime.StopApplication();   // the host's ApplicationStopping: Drain(0.5 s), no signal handlers of our own
         Assert.Single(_a.Events);
+    }
+
+    [Fact]
+    public void ApplicationStoppedEndsThePollLoop()
+    {
+        // a host built and disposed in-process (a WebApplicationFactory per test) must not leave its poller behind
+        var (_, _, lifetime) = Build(Hosts.Hello, configure: o => o.RefreshS = 0.02);
+        Hosts.WaitUntil(() => _a.SnapshotRequests.Count >= 3);
+        Assert.True(_a.SnapshotRequests.Count >= 3);
+        lifetime.Stopped.Cancel();
+        Thread.Sleep(50);   // a tick already past the timer finishes its poll
+        var n = _a.SnapshotRequests.Count;
+        Thread.Sleep(100);   // five periods: a live poller would have polled again
+        Assert.Equal(n, _a.SnapshotRequests.Count);
     }
 
     public void Dispose() => _engine?.Stop();
