@@ -10,8 +10,6 @@ namespace Camada.Events;
 
 public sealed class EventQueue
 {
-    private static readonly JsonSerializerOptions Wire = new() { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never };
-
     public string Url { get; }                 // ingest base, e.g. https://analyst.example.com
     public string Token { get; }               // ingest token (x-tenant header)
     public int MaxBatch { get; }               // flush when the queue reaches this many (server caps at 1000)
@@ -139,7 +137,7 @@ public sealed class EventQueue
     /// the exit drain needs the full queue gone, not just the batch someone else is posting.</summary>
     public void Flush(bool wait = false)
     {
-        if (!(wait ? _inflight.Wait(Timeout.Infinite) : _inflight.Wait(0)))
+        if (!_inflight.Wait(wait ? Timeout.Infinite : 0))
         {
             return;
         }
@@ -168,7 +166,7 @@ public sealed class EventQueue
                 }
                 try
                 {
-                    var body = JsonSerializer.SerializeToUtf8Bytes(batch, Wire);
+                    var body = JsonSerializer.SerializeToUtf8Bytes(batch);
                     var res = Transport(new TransportRequest("POST", $"{Url}/e", headers, body, TimeoutS));
                     if (res.Status == 0)
                     {
