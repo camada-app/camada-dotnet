@@ -128,6 +128,10 @@ public sealed class CamadaEngine
 
     private string? IpOf(Req req) => Ip.ResolveClientIp(req.Peer, req.Header("x-forwarded-for"), TrustedProxyConfig());
 
+    private static bool Secure(Req req) => req.Https || req.Header("x-forwarded-proto") == "https";
+
+    private static string? SidOf(Req req) => CookieValue(req.Header("cookie"), SessionCookie);
+
     public static string? CookieValue(string? cookie, string name)
     {
         var src = "; " + (cookie ?? "");
@@ -225,7 +229,7 @@ public sealed class CamadaEngine
             }
             if (v.Challenge && !ChallengePassed(req, ip))
             {
-                return ServeChallengeAnswer(req, ip, CookieValue(req.Header("cookie"), SessionCookie));
+                return ServeChallengeAnswer(req, ip, SidOf(req));
             }
         }
 
@@ -243,15 +247,14 @@ public sealed class CamadaEngine
         }
 
         var rid = Guid.NewGuid().ToString();
-        var sid = CookieValue(req.Header("cookie"), SessionCookie);
+        var sid = SidOf(req);
         var newSession = string.IsNullOrEmpty(sid);
         string? setCookie = null;
         if (newSession)
         {
             sid = Guid.NewGuid().ToString();
-            var secure = req.Https || req.Header("x-forwarded-proto") == "https";
             setCookie = $"{SessionCookie}={sid}; Path=/; Max-Age={SessionMaxAge}; HttpOnly; SameSite=Lax";
-            if (secure)
+            if (Secure(req))
             {
                 setCookie += "; Secure";
             }
@@ -313,23 +316,18 @@ public sealed class CamadaEngine
             return new Answer(413, Array.Empty<KeyValuePair<string, string>>(), Array.Empty<byte>());
         }
         var answer = new Answer(204, new List<KeyValuePair<string, string>> { new("cache-control", "no-store") }, Array.Empty<byte>());
-        Dictionary<string, JsonElement>? parsed;
+        Dictionary<string, object?>? row;   // values land as JsonElement: a non-object body throws, `null` is null
         try
         {
-            parsed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(body);
+            row = JsonSerializer.Deserialize<Dictionary<string, object?>>(body);
         }
         catch (JsonException)
         {
             return answer;
         }
-        if (parsed == null)
+        if (row == null)
         {
             return answer;
-        }
-        var row = new Dictionary<string, object?>(parsed.Count + 3);
-        foreach (var (k, v) in parsed)
-        {
-            row[k] = v;
         }
         row["sig"] = 1;   // spread first: ip and tap are the server's word
         row["ip"] = ip;
@@ -411,10 +409,9 @@ public sealed class CamadaEngine
         {
             return PageAnswer(ip, to);
         }
-        var secure = req.Https || req.Header("x-forwarded-proto") == "https";
-        var cookie = Format.Cookie(Kit.Issue(ip, now), secure);
+        var cookie = Format.Cookie(Kit.Issue(ip, now), Secure(req));
         var headers = new List<KeyValuePair<string, string>> { new("location", to), new("set-cookie", cookie), new("cache-control", "no-store") };
-        var ev = Event(req, Guid.NewGuid().ToString(), CookieValue(req.Header("cookie"), SessionCookie), false, ip);
+        var ev = Event(req, Guid.NewGuid().ToString(), SidOf(req), false, ip);
         ev["st"] = 200;
         ev["ch"] = 1;   // challenge passed (contract §A3 ingest field)
         Queue!.Push(ev);

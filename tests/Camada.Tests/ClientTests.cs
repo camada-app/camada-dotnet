@@ -15,15 +15,6 @@ public class ClientTests
     private static SnapshotClient Client(FakeAnalyst a, double? refreshS = null, int snapshotVersion = 5) =>
         new(Url, "snap-test", refreshS: refreshS, mode: SnapshotMode.Lazy, transport: a.Transport, sdk: "@camada/dotnet/0.0.0", snapshotVersion: snapshotVersion);
 
-    internal static void WaitUntil(Func<bool> cond, int ms = 2000)
-    {
-        var end = Environment.TickCount64 + ms;
-        while (!cond() && Environment.TickCount64 < end)
-        {
-            Thread.Sleep(5);
-        }
-    }
-
     [Fact]
     public void ColdClientFailsOpen()
     {
@@ -109,6 +100,30 @@ public class ClientTests
     }
 
     [Fact]
+    public void ACorruptFirstBodyIsRetriedAtThePollCadenceNotPerRequest()
+    {
+        // No good load yet and a 200 the parser rejects: the answer still stamps loaded_at, so the
+        // request path (EnsureFresh) does not start a full download per request; the client stays cold.
+        var a = new FakeAnalyst();
+        var c = Client(a);
+        Transport good = a.Transport;
+        c.Transport = req =>
+        {
+            var r = good(req);
+            return r with { Body = new byte[] { 5, 0, 0, 0 }.Concat("junk!"u8.ToArray()).Concat(new byte[10]).ToArray() };
+        };
+        c.EnsureFresh();
+        Hosts.WaitUntil(() => a.SnapshotRequests.Count == 1 && !c.Stale);
+        for (var i = 0; i < 10; i++)
+        {
+            c.EnsureFresh();
+            Thread.Sleep(10);
+        }
+        Assert.Single(a.SnapshotRequests);
+        Assert.Equal("cold", c.Verdict(Blocked).Reason);
+    }
+
+    [Fact]
     public void SameVersionNewEtagReparses()
     {
         // the server ships v3/v4/v5 bodies of one publish under the same meta.version and different etags
@@ -153,7 +168,7 @@ public class ClientTests
         var c = Client(a);
         c.EnsureFresh();
         c.EnsureFresh();
-        WaitUntil(() => c.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason != "cold");
+        Hosts.WaitUntil(() => c.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason != "cold");
         Assert.True(c.Verdict(Blocked).Block);
         Assert.Single(a.SnapshotRequests);
         c.EnsureFresh();   // fresh: no new poll
@@ -169,7 +184,7 @@ public class ClientTests
         c.Start();
         try
         {
-            WaitUntil(() => a.SnapshotRequests.Count >= 3);
+            Hosts.WaitUntil(() => a.SnapshotRequests.Count >= 3);
             Assert.True(a.SnapshotRequests.Count >= 3);
         }
         finally
@@ -189,12 +204,12 @@ public class ClientTests
         var c = new SnapshotClient(Url, "snap-test", refreshS: 0.02, mode: SnapshotMode.Timer, transport: a.Transport);
         c.Start();
         c.Start();
-        WaitUntil(() => a.SnapshotRequests.Count >= 2);
+        Hosts.WaitUntil(() => a.SnapshotRequests.Count >= 2);
         c.Stop();
         Thread.Sleep(30);
         var n = a.SnapshotRequests.Count;
         c.Start();   // a stopped client can be re-armed (what a host restart does)
-        WaitUntil(() => a.SnapshotRequests.Count >= n + 2);
+        Hosts.WaitUntil(() => a.SnapshotRequests.Count >= n + 2);
         c.Stop();
         Assert.True(a.SnapshotRequests.Count >= n + 2);
     }

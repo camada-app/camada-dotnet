@@ -79,11 +79,11 @@ public sealed class CamadaMiddleware
         {
             peer = peer.MapToIPv4();
         }
-        var proto = r.Protocol ?? "";
+        var proto = r.Protocol;
         var hostHeader = r.Headers.Host.ToString();
         return new Req
         {
-            Method = r.Method ?? "GET",
+            Method = r.Method,
             Path = r.Path.HasValue ? r.Path.Value! : "/",
             Query = r.QueryString.HasValue ? r.QueryString.Value! : "",
             Host = hostHeader.Length > 0 ? hostHeader : r.Host.Host,
@@ -120,7 +120,8 @@ public sealed class CamadaMiddleware
         return size > limit ? null : buf[..size];
     }
 
-    private static async Task Write(HttpContext ctx, Answer a)
+    /// <summary>The one place an Answer becomes an HTTP response (CamadaServeChallenge's IResult goes through it too).</summary>
+    internal static async Task Write(HttpContext ctx, Answer a)
     {
         ctx.Response.StatusCode = a.Status;
         foreach (var (k, v) in a.Headers)

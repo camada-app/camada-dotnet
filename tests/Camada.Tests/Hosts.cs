@@ -61,18 +61,21 @@ public static class Hosts
         return new CamadaEngine(opts);
     }
 
+    /// <summary>The one polling helper of the suite: spins (5 ms) until `cond` holds or `ms` have passed.</summary>
+    public static void WaitUntil(Func<bool> cond, int ms = 2000)
+    {
+        var end = Environment.TickCount64 + ms;
+        while (!cond() && Environment.TickCount64 < end)
+        {
+            Thread.Sleep(5);
+        }
+    }
+
     public static void Loaded(CamadaEngine engine)
     {
         Assert.NotNull(engine.Snap);
-        for (var i = 0; i < 400; i++)
-        {
-            if (engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason != "cold")
-            {
-                return;
-            }
-            Thread.Sleep(5);
-        }
-        Assert.Fail("snapshot never loaded");
+        WaitUntil(() => engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason != "cold");
+        Assert.NotEqual("cold", engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason);
     }
 
     public static Task Hello(HttpContext ctx)
@@ -81,6 +84,26 @@ public static class Hosts
         ctx.Response.ContentType = "text/plain";
         return ctx.Response.Body.WriteAsync("hello"u8.ToArray()).AsTask();
     }
+}
+
+/// <summary>What Kestrel hands the middleware: a body that cannot seek, so Request.EnableBuffering()
+/// has to wrap it (a seekable MemoryStream makes that call a no-op and hides the rewind path).</summary>
+public sealed class NonSeekableStream : Stream
+{
+    private readonly Stream _inner;
+
+    public NonSeekableStream(byte[] bytes) => _inner = new MemoryStream(bytes);
+
+    public override bool CanRead => true;
+    public override bool CanSeek => false;
+    public override bool CanWrite => false;
+    public override long Length => throw new NotSupportedException();
+    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+    public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+    public override void Flush() { }
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    public override void SetLength(long value) => throw new NotSupportedException();
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 }
 
 /// <summary>One engine + one host per test, loaded unless asked otherwise.</summary>
@@ -108,10 +131,10 @@ public sealed class Host : IDisposable
         }
     }
 
-    public Reply Call(string method = "GET", string path = "/", (string, string)[]? headers = null, byte[]? body = null, string? peer = Hosts.Peer, bool https = false, long? contentLength = null) =>
-        CallAsync(method, path, headers, body, peer, https, contentLength).GetAwaiter().GetResult();
+    public Reply Call(string method = "GET", string path = "/", (string, string)[]? headers = null, byte[]? body = null, string? peer = Hosts.Peer, bool https = false, long? contentLength = null, bool seekable = true) =>
+        CallAsync(method, path, headers, body, peer, https, contentLength, seekable).GetAwaiter().GetResult();
 
-    public async Task<Reply> CallAsync(string method = "GET", string path = "/", (string, string)[]? headers = null, byte[]? body = null, string? peer = Hosts.Peer, bool https = false, long? contentLength = null)
+    public async Task<Reply> CallAsync(string method = "GET", string path = "/", (string, string)[]? headers = null, byte[]? body = null, string? peer = Hosts.Peer, bool https = false, long? contentLength = null, bool seekable = true)
     {
         body ??= Array.Empty<byte>();
         var ctx = new DefaultHttpContext();
@@ -135,7 +158,7 @@ public sealed class Host : IDisposable
         {
             ctx.Request.ContentLength = contentLength ?? body.Length;
         }
-        ctx.Request.Body = new MemoryStream(body);
+        ctx.Request.Body = seekable ? new MemoryStream(body) : new NonSeekableStream(body);
         ctx.Connection.RemoteIpAddress = peer == null ? null : IPAddress.Parse(peer);
         var outBody = new MemoryStream();
         ctx.Response.Body = outBody;

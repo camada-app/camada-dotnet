@@ -13,8 +13,9 @@ namespace Camada.AspNetCore;
 public static class CamadaExtensions
 {
     /// <summary>Registers one CamadaEngine built from the environment (and `configure`), routes the SDK's
-    /// one-line-a-minute log through ILogger, and drains pending events on ApplicationStopping (0.5 s
-    /// budget; no signal handlers of its own).</summary>
+    /// one-line-a-minute log through ILogger, drains pending events on ApplicationStopping (0.5 s
+    /// budget; no signal handlers of its own) and stops the poll and flush loops on ApplicationStopped,
+    /// so a host built and disposed in-process leaves no poller behind.</summary>
     public static IServiceCollection AddCamada(this IServiceCollection services, Action<CamadaOptions>? configure = null)
     {
         services.TryAddSingleton(sp =>
@@ -27,7 +28,9 @@ public static class CamadaExtensions
             var options = new CamadaOptions();
             configure?.Invoke(options);
             var engine = CamadaEngine.Create(options);
-            sp.GetService<IHostApplicationLifetime>()?.ApplicationStopping.Register(() => engine.Queue?.Drain(0.5));
+            var lifetime = sp.GetService<IHostApplicationLifetime>();
+            lifetime?.ApplicationStopping.Register(() => engine.Queue?.Drain(0.5));
+            lifetime?.ApplicationStopped.Register(engine.Stop);
             return engine;
         });
         return services;
@@ -71,15 +74,6 @@ public static class CamadaExtensions
 
         public AnswerResult(Answer a) => _a = a;
 
-        public async Task ExecuteAsync(HttpContext httpContext)
-        {
-            httpContext.Response.StatusCode = _a.Status;
-            foreach (var (k, v) in _a.Headers)
-            {
-                httpContext.Response.Headers.Append(k, v);
-            }
-            httpContext.Response.ContentLength = _a.Body.Length;
-            await httpContext.Response.Body.WriteAsync(_a.Body, httpContext.RequestAborted).ConfigureAwait(false);
-        }
+        public Task ExecuteAsync(HttpContext httpContext) => CamadaMiddleware.Write(httpContext, _a);
     }
 }

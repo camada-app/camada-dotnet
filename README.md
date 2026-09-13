@@ -134,8 +134,9 @@ ctx.CamadaTrack("login_failed", user: email);
 ```
 
 The identifier is HMAC-hashed in-process with your ingest token; the raw value never reaches the
-queue. `CamadaTrack()` never throws and is a no-op on a request the middleware did not run for.
-The event name is free-form; the analyst's app-context rules read this vocabulary:
+queue. `CamadaTrack()` never throws; on a request the middleware did not run for it still ships
+the event, with no rid, sid or ip to join it to. The event name is free-form; the analyst's
+app-context rules read this vocabulary:
 
 | event | when |
 |---|---|
@@ -164,6 +165,8 @@ ASN, country and TLS entries fail open in-app. `matches` patterns are JS regexes
 `Regex` in ECMAScript mode (named groups, `[^]`, `\cX`, and `\d`/`\w`/`\b` ASCII as JS reads them);
 a spelling that mode refuses is retried on the default engine, one neither accepts never matches
 here while it does at the edge, and every match runs under a 50 ms timeout that reads as no match.
+Two anchors read wider than in JS: `$` also matches before a final `\n`, and `.` also matches `\r`
+(header values cannot carry either on the wire; a path rarely does).
 
 ## Deploying it
 

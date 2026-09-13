@@ -40,7 +40,7 @@ public sealed class SnapshotClient
     private volatile Matcher? _matcher;
     private readonly bool _pinned;
     private string? _etag;
-    private long _loadedAt;                            // Environment.TickCount64 of the last accepted answer
+    private long _loadedAt;                            // Environment.TickCount64 of the last accepted answer (0: none yet)
     private volatile bool _loaded;                     // an answer has been applied: the matcher (or its absence) is final
     private readonly SemaphoreSlim _loading = new(1, 1);
     private readonly object _timerLock = new();
@@ -128,8 +128,17 @@ public sealed class SnapshotClient
     }
 
     // 0.9 x refresh so a timer tick arriving at ~refresh-ε still refreshes; a full-interval
-    // comparison makes every other tick a no-op (effective cadence 2x).
-    public bool Stale => !_loaded || Environment.TickCount64 - Interlocked.Read(ref _loadedAt) > RefreshS * 900;
+    // comparison makes every other tick a no-op (effective cadence 2x). Staleness follows the
+    // stamp, not the cold flag: an answer whose frame the parser rejected is still an answer, and
+    // is retried at the poll cadence — never once per request.
+    public bool Stale
+    {
+        get
+        {
+            var at = Interlocked.Read(ref _loadedAt);
+            return at == 0 || Environment.TickCount64 - at > RefreshS * 900;
+        }
+    }
 
     /// <summary>Kicks a refresh when stale; never blocks the request path, never throws. The single-in-flight
     /// slot is taken here, synchronously, so two callers racing cannot both start a load.</summary>
@@ -139,7 +148,7 @@ public sealed class SnapshotClient
         {
             return;
         }
-        _ = Task.Run(() => LoadGuarded(release: true));
+        _ = Task.Run(LoadGuarded);
     }
 
     /// <summary>One synchronous poll: what tests and warm-ups call directly. It waits behind a poll already in
@@ -147,10 +156,11 @@ public sealed class SnapshotClient
     public void Refresh()
     {
         _loading.Wait();
-        LoadGuarded(release: true);
+        LoadGuarded();
     }
 
-    private void LoadGuarded(bool release)
+    /// <summary>Runs one Load() holding the single-in-flight slot the caller took, and releases it.</summary>
+    private void LoadGuarded()
     {
         try
         {
@@ -162,10 +172,7 @@ public sealed class SnapshotClient
         }
         finally
         {
-            if (release)
-            {
-                _loading.Release();
-            }
+            _loading.Release();
         }
     }
 
@@ -189,7 +196,7 @@ public sealed class SnapshotClient
         {
             return;   // 401/5xx/network: keep what we have
         }
-        Interlocked.Exchange(ref _loadedAt, Environment.TickCount64);
+        Interlocked.Exchange(ref _loadedAt, Math.Max(1, Environment.TickCount64));   // 0 is reserved for "never answered"
         ReadConfig(res.Headers.GetValueOrDefault("x-camada-config"));
         if (res.Status == 304)
         {

@@ -6,14 +6,7 @@ namespace Camada;
 
 /// <summary>Mirrors the server-validated tenant config (edge-analyst src/tenant-config.js):
 /// {mode: none} | {mode: hops, hops: N} | {mode: cidrs, cidrs: [...]} | {mode: vercel}.</summary>
-public sealed record TrustedProxy(string Mode, int Hops, IReadOnlyList<string>? Cidrs)
-{
-    public bool Equals(TrustedProxy? other) =>
-        other != null && Mode == other.Mode && Hops == other.Hops
-        && (Cidrs ?? Array.Empty<string>()).SequenceEqual(other.Cidrs ?? Array.Empty<string>());
-
-    public override int GetHashCode() => HashCode.Combine(Mode, Hops, Cidrs?.Count ?? 0);
-}
+public sealed record TrustedProxy(string Mode, int Hops, IReadOnlyList<string>? Cidrs);
 
 /// <summary>The parsed x-camada-config header. Every field is optional: the server whitelists what it sends.</summary>
 public sealed class RemoteConfig
