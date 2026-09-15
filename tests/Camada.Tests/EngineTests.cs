@@ -482,8 +482,8 @@ public class ChallengeFlowTests
         var pair = cookie.Split(';')[0];
         Assert.Equal(200, h.Call("GET", "/back", EngineFx.Html.Append(("cookie", pair)).ToArray(), peer: FakeAnalyst.ChallengedIp).Status);
         Assert.Equal(200, h.Call("GET", "/back", EngineFx.Html.Append(("cookie", pair)).ToArray(), peer: "192.0.2.21").Status);   // not challenged at all
-        var idx = pair.IndexOf('0', 5);
-        var forged = "_cch=" + pair[5..idx] + "1" + pair[(idx + 1)..];
+        // a tampered mac: flip the last hex digit (replacing the first '0' threw on the values that had none)
+        var forged = pair[..^1] + (pair[^1] != '0' ? "0" : "1");
         Assert.Equal(403, h.Call("GET", "/back", EngineFx.Html.Append(("cookie", forged)).ToArray(), peer: FakeAnalyst.ChallengedIp).Status);
     }
 
