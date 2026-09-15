@@ -17,7 +17,7 @@ public sealed record Env(
     TrustedProxy? TrustedProxy)    // null = defer to server-delivered config
 {
     // PLACEHOLDER default, the same one @camada/node carries — confirm the production ingest domain before any NuGet publish.
-    public const string DefaultIngestUrl = "https://in.camada.dev";
+    public const string DefaultIngestUrl = "https://in.camada.app";
 
     /// <summary>Null (SDK stays inert, one log line) rather than throwing on bad config.</summary>
     public static Env? Resolve(IReadOnlyDictionary<string, string?> env)
