@@ -8,7 +8,7 @@ helpers live in namespace `Camada.AspNetCore`. Fails open by design: a camada ou
 5xxes your app.
 
 Not on NuGet yet. From the folder that holds your `.csproj`, clone it next to the project, then
-reference it (as [`camada-dotnet-example`](../camada-dotnet-example) does):
+reference it (as [`camada-dotnet-example`](https://github.com/camada-app/camada-dotnet-example) does):
 
 ```
 git clone https://github.com/camada-app/camada-dotnet ../camada-dotnet
@@ -33,7 +33,7 @@ app.MapGet("/", (HttpContext ctx) => Results.Content($"<html><head>{ctx.CamadaSc
 app.Run();
 ```
 
-Set these as environment variables (camada onboarding prints the key; `npm run seed` in dev):
+Set these as environment variables (the key is printed once when you create a project in the app):
 export them in the shell that runs `dotnet run`, add them to `"environmentVariables"` in
 `Properties/launchSettings.json` (which `dotnet run` reads), or set them in your host's settings.
 camada reads only the process environment: `appsettings.json`, user-secrets and a `.env` file
@@ -231,6 +231,6 @@ The version lives in one place, the `<Version>` element of `src/Camada/Camada.cs
 sibling drift guards parse), repeated as `CamadaVersion.Value`; `VersionTests` holds the two
 together.
 
-[`camada-dotnet-example`](../camada-dotnet-example) is the hand-test bench (a minimal API on
+[`camada-dotnet-example`](https://github.com/camada-app/camada-dotnet-example) is the hand-test bench (a minimal API on
 :3007), and `node scripts/e2e-sdk-dotnet.mjs` in `camada/edge-analyst` drives it against a seeded
 local analyst over real HTTP, cold first request included.
