@@ -158,6 +158,24 @@ public class CaptureTests
     }
 
     [Fact]
+    public void StampsTsAtTheRequestStartSoTsPlusDurIsTheResponseEnd()
+    {
+        using var h = new Host(new FakeAnalyst(), handler: async ctx =>
+        {
+            await Task.Delay(200);
+            ctx.Response.StatusCode = 200;
+        });
+        var start = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        h.Call("GET", "/slow");
+        var end = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var ev = Assert.Single(h.Events());
+        long ts = ev.I("ts")!.Value, dur = ev.I("dur")!.Value;
+        Assert.True(dur >= 190, $"dur {dur}"); // TickCount64 ticks at ~15 ms on some hosts
+        Assert.True(ts >= start && ts < start + 100, $"ts {ts} start {start}"); // not one dur later
+        Assert.True(Math.Abs(ts + dur - end) < 100, $"ts+dur {ts + dur} end {end}");
+    }
+
+    [Fact]
     public void ReusesTheSessionCookieAndMarksHttpsSecure()
     {
         using var h = new Host(new FakeAnalyst());

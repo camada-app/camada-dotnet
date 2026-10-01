@@ -188,6 +188,7 @@ public sealed class CamadaEngine
         }
         var queue = Queue;
         var t0 = Environment.TickCount64;
+        var ts0 = NowMs(); // ts is the request start, the moment dur counts from
         Snap.EnsureFresh();
         var ip = IpOf(req);
 
@@ -278,6 +279,7 @@ public sealed class CamadaEngine
                     return;
                 }
                 var ev = Event(req, rid, sid, newSession, ip);
+                ev["ts"] = ts0;
                 ev["st"] = status;
                 ev["dur"] = (int)(Environment.TickCount64 - t0);
                 if (!string.IsNullOrEmpty(req.Route))
