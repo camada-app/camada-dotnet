@@ -12,7 +12,7 @@
     <!-- The SDK's wire identity (SDK-03): x-camada-sdk: @camada/dotnet/<Version>. This element is the single
          source the sibling drift guards (camada-backend, camada-web, camada-mkt) parse, and CamadaVersion.cs
          repeats it; VersionTests holds the two together. Plain X.Y.Z only: the analyst's SDK_RE is strict. -->
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>camada</Authors>
     <Description>camada SDK for .NET: inline enforcement of your snapshot (ordered custom rules, then allow, block, challenge), first-party beacon and proof-of-work challenge, batched event shipping. ASP.NET Core middleware.</Description>
