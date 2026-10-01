@@ -75,7 +75,7 @@ public sealed class RuleRequest
     public long? Asn { get; init; }
     public string? Country { get; init; }
     public string? Tlsx { get; init; }
-    public string Path { get; init; } = "/";             // already query-stripped
+    public string[] Paths { get; init; } = ["/", "/", "/"];   // [raw (query cut), lit, full]: Paths.Forms
     public string? Ua { get; init; }
     public Func<string, string?>? Header { get; init; }  // called with an already lower-cased name; absent where the tap cannot read headers
 }
@@ -152,6 +152,10 @@ public static class Parser
         return set;
     }
 
+    /// <summary>A meta path list, canonicalised once at load (contracts §D3 "Path matching").</summary>
+    private static HashSet<string> CanonSet(JsonElement meta, string name, Func<string, string> canon) =>
+        new(Strings(meta, name).Select(canon), StringComparer.Ordinal);
+
     /// <summary>A JSON scalar as the string the reference's String(x) gives: numbers keep their JSON spelling.</summary>
     private static string Text(JsonElement e) => e.ValueKind == JsonValueKind.String ? e.GetString()! : e.GetRawText();
 
@@ -159,8 +163,8 @@ public static class Parser
     {
         var asn = Longs(m, "asn");
         var country = Strings(m, "country");
-        var exact = Strings(m, "pathsExact");
-        var prefix = Strings(m, "pathsPrefix");
+        var exact = CanonSet(m, "pathsExact", v => Paths.Canon(v));
+        var prefix = CanonSet(m, "pathsPrefix", Paths.DirKey);
         var empty = r4.Length == 0 && r6.Length == 0 && asn.Count == 0 && country.Count == 0 && exact.Count == 0 && prefix.Count == 0;
         return new RangeSet { R4 = r4, R6 = r6, N6 = r6.Length >> 3, Asn = asn, Country = country, PathsExact = exact, PathsPrefix = prefix, Empty = empty };
     }
@@ -232,11 +236,12 @@ public static class Parser
     /// authored as JS regexes (the analyst validates them with `new RegExp`), so ECMAScript mode is tried
     /// first — it keeps \d \w \b ASCII and reads `[^]`, `\cX` and named groups as JS does — and a spelling
     /// it refuses is retried on the default engine after JsToDotNet. Every match runs under a timeout.</summary>
-    public static Regex? CompileRegex(string pattern)
+    public static Regex? CompileRegex(string pattern, bool ignoreCase = false)
     {
+        var ic = ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None;   // path regexes run case-insensitively (§D3 "Path matching")
         try
         {
-            return new Regex(pattern, RegexOptions.ECMAScript | RegexOptions.CultureInvariant, MatchTimeout);
+            return new Regex(pattern, RegexOptions.ECMAScript | RegexOptions.CultureInvariant | ic, MatchTimeout);
         }
         catch (ArgumentException)
         {
@@ -244,7 +249,7 @@ public static class Parser
         }
         try
         {
-            return new Regex(JsToDotNet(pattern), RegexOptions.CultureInvariant, MatchTimeout);
+            return new Regex(JsToDotNet(pattern), RegexOptions.CultureInvariant | ic, MatchTimeout);
         }
         catch (ArgumentException)
         {
@@ -308,7 +313,6 @@ public static class Parser
         "asn" => r.Asn?.ToString(CultureInfo.InvariantCulture),
         "country" => string.IsNullOrEmpty(r.Country) ? null : r.Country,
         "tlsx" => string.IsNullOrEmpty(r.Tlsx) ? null : r.Tlsx,
-        "path" => r.Path,
         "ua" => string.IsNullOrEmpty(r.Ua) ? null : r.Ua,
         _ => null,   // an entity-plane field (bot.verified, rule): never true here
     };
@@ -318,11 +322,26 @@ public static class Parser
 
     /// <summary>One condition -> a predicate. `sets` yields this rule's (v4, v6) section pair per ip
     /// condition, in condition order, so an ip condition consumes the next one.</summary>
-    private static RuleCond CompileCond(JsonElement c, Queue<(U32 V4, U32 V6)> sets)
+    private static RuleCond CompileCond(JsonElement c, Queue<(U32 V4, U32 V6)> sets, bool deny)
     {
         var f = Prop(c, "f");
         var op = Prop(c, "op");
         var negate = op is "is_not" or "not_in";
+        var values = new List<string>();
+        if (c.TryGetProperty("v", out var raw) && raw.ValueKind == JsonValueKind.Array)
+        {
+            values.AddRange(raw.EnumerateArray().Select(Text));
+        }
+        else
+        {
+            values.Add(Prop(c, "v"));
+        }
+        if (f == "path")
+        {
+            // every path op reads the canonical forms (Paths.cs): a deny any spelling, a skip every one
+            var pred = Paths.Pred(op, values);
+            return r => Paths.Hit(pred, r.Paths, deny);
+        }
         // A header condition reads the request through the caller's getter. The name is lower-cased
         // once, here; a tap that cannot read headers (no getter) and a header the request does not
         // carry are both null, and null is false for every op — the rule simply does not fire (fail
@@ -366,15 +385,6 @@ public static class Parser
                 var hit = (r.N4 >= 0 && InRange4(p4, r.N4)) || (r.Ip6 != null && InRange6(p6, n6, r.Ip6));
                 return negate ? !hit : hit;
             };
-        }
-        var values = new List<string>();
-        if (c.TryGetProperty("v", out var raw) && raw.ValueKind == JsonValueKind.Array)
-        {
-            values.AddRange(raw.EnumerateArray().Select(Text));
-        }
-        else
-        {
-            values.Add(Prop(c, "v"));
         }
         if (op == "matches")
         {
@@ -443,7 +453,7 @@ public static class Parser
                 {
                     foreach (var c in cs.EnumerateArray())
                     {
-                        conds.Add(CompileCond(c, sets));
+                        conds.Add(CompileCond(c, sets, action != "skip"));
                     }
                 }
             }
@@ -515,9 +525,9 @@ public static class Parser
             AsnExtra = Sec(sec, 9),
             Country = Strings(meta, "country"),
             Tls = Strings(meta, "tls"),
-            PathsExact = Strings(meta, "pathsExact"),
-            PathsPrefix = Strings(meta, "pathsPrefix"),
-            PathsRegex = Strings(meta, "pathsRegex").Select(CompileRegex).Where(rx => rx != null).Cast<Regex>().ToList(),
+            PathsExact = CanonSet(meta, "pathsExact", v => Paths.Canon(v)),
+            PathsPrefix = CanonSet(meta, "pathsPrefix", Paths.DirKey),
+            PathsRegex = Strings(meta, "pathsRegex").Select(p => CompileRegex(p, ignoreCase: true)).Where(rx => rx != null).Cast<Regex>().ToList(),
             Allow = MakeRangeSet(Sec(sec, 10), Sec(sec, 11), Sub(meta, "allow")),
             Challenge = MakeRangeSet(Sec(sec, 12), Sec(sec, 13), Sub(meta, "challenge")),
             Rules = CompileRules(meta, rule4, rule6),

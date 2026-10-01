@@ -5,6 +5,7 @@
 // throws, the exception propagating unchanged.
 using System.Net.Sockets;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -85,6 +86,7 @@ public sealed class CamadaMiddleware
         {
             Method = r.Method,
             Path = r.Path.HasValue ? r.Path.Value! : "/",
+            RawPath = RawPathOf(ctx),
             Query = r.QueryString.HasValue ? r.QueryString.Value! : "",
             Host = hostHeader.Length > 0 ? hostHeader : r.Host.Host,
             HttpVersion = proto.StartsWith("HTTP/", StringComparison.Ordinal) ? proto[5..] : null,
@@ -92,6 +94,23 @@ public sealed class CamadaMiddleware
             Https = r.IsHttps,
             Headers = headers,
         };
+    }
+
+    /// <summary>The path as the client sent it: Request.Path is already decoded (all but %2F) and has
+    /// PathBase cut off, so path rules match the raw target instead (contracts §D3 "Path matching") — the
+    /// matcher canonicalises it. An origin-form target only; anything else (absolute-form, `*`) falls back
+    /// to PathBase + Path.</summary>
+    private static string RawPathOf(HttpContext ctx)
+    {
+        var target = ctx.Features.Get<IHttpRequestFeature>()?.RawTarget;
+        if (!string.IsNullOrEmpty(target) && target[0] == '/')
+        {
+            var q = target.IndexOf('?');
+            return q == -1 ? target : target[..q];
+        }
+        var r = ctx.Request;
+        var p = (r.PathBase + r.Path).Value;
+        return string.IsNullOrEmpty(p) ? "/" : p;
     }
 
     /// <summary>At most `limit` bytes (null when the declared or actual size exceeds it). The body is
