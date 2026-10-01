@@ -3,17 +3,27 @@
 camada for .NET: enforces the tenant snapshot inline (your ordered custom rules, then allow,
 block, challenge), serves a first-party proof-of-work challenge page and beacon, records the
 outcomes your handlers know (`CamadaTrack()`), and ships wire events in batches off the request
-path. One package (NuGet id `Camada`, namespace `Camada`) with an ASP.NET Core middleware and
-three `HttpContext` helpers. Fails open by design: a camada outage or bug never 5xxes your app.
+path. One package (NuGet id `Camada`); the ASP.NET Core middleware and its three `HttpContext`
+helpers live in namespace `Camada.AspNetCore`. Fails open by design: a camada outage or bug never
+5xxes your app.
 
-Not yet on NuGet — reference it from a sibling checkout:
-`<ProjectReference Include="../camada-dotnet/src/Camada/Camada.csproj" />` (as
-[`camada-dotnet-example`](../camada-dotnet-example) does); publishing is one decision with the npm
-packages (SDK-G01). .NET 8, no runtime dependencies beyond the ASP.NET Core shared framework.
+Not on NuGet yet. From the folder that holds your `.csproj`, clone it next to the project, then
+reference it (as [`camada-dotnet-example`](../camada-dotnet-example) does):
+
+```
+git clone https://github.com/camada-app/camada-dotnet ../camada-dotnet
+dotnet add reference ../camada-dotnet/src/Camada/Camada.csproj
+```
+
+Next to it, not inside it: an SDK-style project compiles every `.cs` file under its folder.
+Publishing is one decision with the npm packages (SDK-G01). .NET 8, no runtime dependencies beyond
+the ASP.NET Core shared framework.
 
 ## Quickstart
 
 ```csharp
+using Camada.AspNetCore;
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCamada();      // one engine from the environment, drained on shutdown
 
@@ -39,6 +49,11 @@ startup by waiting for the boot poll — a bounded loop, so an unreachable analy
 and the app still starts and fails open:
 
 ```csharp
+// beside using Camada.AspNetCore; at the top of Program.cs
+using Camada;
+using Camada.Snapshot;
+
+// after var app = builder.Build();
 var engine = app.Services.GetRequiredService<CamadaEngine>();   // builds it; the boot poll is already running
 if (engine.Snap != null)                                       // null when CAMADA_KEY is unset or CAMADA_DISABLED=1
 {
@@ -59,6 +74,9 @@ that reads its own config hands the values in through the options — credential
 an environment map, never as constructor arguments:
 
 ```csharp
+using Camada.AspNetCore;
+
+var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCamada(o => o.Env = new Dictionary<string, string?> { ["CAMADA_KEY"] = myKey, ["CAMADA_INGEST_URL"] = myIngest });
 ```
 
