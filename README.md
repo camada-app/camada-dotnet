@@ -33,11 +33,15 @@ app.MapGet("/", (HttpContext ctx) => Results.Content($"<html><head>{ctx.CamadaSc
 app.Run();
 ```
 
-Env (printed by camada onboarding / `npm run seed` in dev):
+Set these as environment variables (camada onboarding prints the key; `npm run seed` in dev):
+export them in the shell that runs `dotnet run`, add them to `"environmentVariables"` in
+`Properties/launchSettings.json` (which `dotnet run` reads), or set them in your host's settings.
+camada reads only the process environment: `appsettings.json`, user-secrets and a `.env` file
+never reach it.
 
 ```
-CAMADA_KEY=<ingest_token>.<snap_token>
-CAMADA_INGEST_URL=http://localhost:8787        # dev only; defaults to production ingest
+export CAMADA_KEY=<ingest_token>.<snap_token>
+export CAMADA_INGEST_URL=http://localhost:8787   # dev only; defaults to production ingest
 ```
 
 `AddCamada()` builds the engine when the container first resolves it — on the first request
@@ -77,6 +81,7 @@ an environment map, never as constructor arguments:
 using Camada.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+// instead of AddCamada(); myKey, myIngest: read from your own configuration
 builder.Services.AddCamada(o => o.Env = new Dictionary<string, string?> { ["CAMADA_KEY"] = myKey, ["CAMADA_INGEST_URL"] = myIngest });
 ```
 
@@ -138,6 +143,7 @@ request; set at boot, no timer starts at all).
 ## The first-party beacon
 
 ```csharp
+// Program.cs, above app.Run(): the Quickstart already maps this route
 app.MapGet("/", (HttpContext ctx) => Results.Content($"<html><head>{ctx.CamadaScriptTag()}</head>…", "text/html"));
 ```
 
@@ -148,6 +154,7 @@ derives the post path from its own URL, so the two must share a directory.
 ## App-context events
 
 ```csharp
+// in a handler that takes HttpContext ctx, once your own sign-in check fails (email: the account it was for)
 ctx.CamadaTrack("login_failed", user: email);
 ```
 
@@ -169,6 +176,7 @@ A route you gate yourself: `ctx.CamadaServeChallenge()` returns the page as an `
 return from the handler until the browser holds a valid `_cch`, then `null`:
 
 ```csharp
+// Program.cs, above app.Run(); page: your own HTML
 app.MapGet("/challenge-me", (HttpContext ctx) => ctx.CamadaServeChallenge() ?? Results.Content(page, "text/html"));
 ```
 
