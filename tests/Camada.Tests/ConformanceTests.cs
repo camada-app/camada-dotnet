@@ -74,7 +74,7 @@ public class TestV3V4
     {
         var m = Conformance.MatcherOf($"{version}-basic");
         var cases = Conformance.List(Conformance.Cases.GetProperty(version).GetProperty("basic")).ToList();
-        Assert.Equal(60, cases.Count);
+        Assert.Equal(94, cases.Count);
         foreach (var c in cases)
         {
             Assert.True(Conformance.Expect(c) == Conformance.Outcome(m.Match(Conformance.AsInput(c))), Conformance.Label(c));
@@ -134,7 +134,7 @@ public class TestV5
     public void RulesCases()
     {
         var m = Conformance.MatcherOf("v5-rules", "blk5");
-        Assert.Equal(96, Rules.Count());
+        Assert.Equal(135, Rules.Count());
         foreach (var c in Rules)
         {
             Assert.True(Conformance.Expect5(c) == Conformance.Outcome5(m.Match(Conformance.AsInput(c))), Conformance.Label(c));

@@ -10,6 +10,8 @@
 // At the SDK position only ip, path, ua and the request headers are usually known;
 // asn/country/tlsx entries and conditions then simply never match — that is the documented,
 // honest enforcement scope (fail open, never guess).
+using System.Text.RegularExpressions;
+
 namespace Camada.Snapshot;
 
 public sealed record MatchInput
@@ -38,28 +40,6 @@ public sealed class Matcher
     public Snapshot Snap { get; }
 
     public Matcher(Snapshot snap) => Snap = snap;
-
-    public static string CleanPath(string? raw)
-    {
-        var p = string.IsNullOrEmpty(raw) ? "/" : raw;
-        var q = p.IndexOf('?');
-        return q == -1 ? p : p[..q];
-    }
-
-    /// <summary>Walks every '/'-terminated ancestor of `path`, the way the block side does.</summary>
-    private static bool PrefixHit(HashSet<string> prefixes, string path)
-    {
-        var i = path.IndexOf('/', 1);
-        while (i != -1)
-        {
-            if (prefixes.Contains(path[..(i + 1)]))
-            {
-                return true;
-            }
-            i = path.IndexOf('/', i + 1);
-        }
-        return false;
-    }
 
     /// <summary>A rule decided this request (§D3): at most one of Allowed / Block / Challenge / Warn is
     /// true, `Reason` is 'rule', and `Rule` names the id the adapters stamp on the event.</summary>
@@ -168,29 +148,28 @@ public sealed class Matcher
         return false;
     }
 
-    private bool BlockedPath(string path)
+    /// <summary>Exact, prefix (directory walk) or regex, over one path form.</summary>
+    private static bool PathIn(HashSet<string> exact, HashSet<string> prefix, IReadOnlyList<Regex>? regex, string p)
     {
-        var s = Snap;
-        if (s.PathsExact.Contains(path))
+        if (exact.Contains(p) || (prefix.Count > 0 && Paths.Prefixed(prefix, p)))
         {
             return true;
         }
-        if (s.PathsPrefix.Count > 0 && PrefixHit(s.PathsPrefix, path))
+        if (regex != null)
         {
-            return true;
-        }
-        foreach (var rx in s.PathsRegex)
-        {
-            if (Parser.Search(rx, path))
+            foreach (var rx in regex)
             {
-                return true;
+                if (Parser.Search(rx, p))
+                {
+                    return true;
+                }
             }
         }
         return false;
     }
 
     /// <summary>The block side: v3 sections plus the top-level meta.</summary>
-    private string? BlockSide(MatchInput i, long n4, uint[]? w)
+    private string? BlockSide(MatchInput i, long n4, uint[]? w, string[] paths)
     {
         var s = Snap;
         if (n4 >= 0 && Blocked4(n4))
@@ -213,7 +192,8 @@ public sealed class Matcher
         {
             return "tls";
         }
-        if ((s.PathsExact.Count > 0 || s.PathsPrefix.Count > 0 || s.PathsRegex.Count > 0) && BlockedPath(CleanPath(i.Path)))
+        if ((s.PathsExact.Count > 0 || s.PathsPrefix.Count > 0 || s.PathsRegex.Count > 0)
+            && Paths.Hit(p => PathIn(s.PathsExact, s.PathsPrefix, s.PathsRegex, p), paths, deny: true))
         {
             return "path";
         }
@@ -221,7 +201,7 @@ public sealed class Matcher
     }
 
     /// <summary>A v4 side list (allow or challenge). No tls axis: §A3's side meta has no tls key.</summary>
-    private static string? Side(RangeSet st, MatchInput i, long n4, uint[]? w)
+    private static string? Side(RangeSet st, MatchInput i, long n4, uint[]? w, string[] paths, bool deny)
     {
         if (st.Empty)
         {
@@ -243,17 +223,10 @@ public sealed class Matcher
         {
             return "country";
         }
-        if (st.PathsExact.Count > 0 || st.PathsPrefix.Count > 0)
+        if ((st.PathsExact.Count > 0 || st.PathsPrefix.Count > 0)
+            && Paths.Hit(p => PathIn(st.PathsExact, st.PathsPrefix, null, p), paths, deny))
         {
-            var p = CleanPath(i.Path);
-            if (st.PathsExact.Contains(p))
-            {
-                return "path";
-            }
-            if (st.PathsPrefix.Count > 0 && PrefixHit(st.PathsPrefix, p))
-            {
-                return "path";
-            }
+            return "path";
         }
         return null;
     }
@@ -275,9 +248,10 @@ public sealed class Matcher
                 w = IpParse.ParseIp6(ip);
             }
         }
+        var paths = Paths.Forms(i.Path);   // [raw, lit, full]: contracts §D3 "Path matching"
         if (s.Rules.Count > 0)
         {
-            var r = new RuleRequest { N4 = n4, Ip6 = w, Asn = i.Asn, Country = i.Country, Tlsx = i.Tlsx, Path = CleanPath(i.Path), Ua = i.Ua, Header = i.Header };
+            var r = new RuleRequest { N4 = n4, Ip6 = w, Asn = i.Asn, Country = i.Country, Tlsx = i.Tlsx, Paths = paths, Ua = i.Ua, Header = i.Header };
             foreach (var rule in s.Rules)   // the order IS the precedence (§A4): first match wins
             {
                 var all = true;
@@ -295,17 +269,17 @@ public sealed class Matcher
                 }
             }
         }
-        var reason = Side(s.Allow, i, n4, w);
+        var reason = Side(s.Allow, i, n4, w, paths, deny: false);   // an exemption: every canonical spelling must agree
         if (reason != null)
         {
             return new MatchResult(Allowed: true, Reason: reason, Version: s.Version);
         }
-        reason = BlockSide(i, n4, w);
+        reason = BlockSide(i, n4, w, paths);
         if (reason != null)
         {
             return new MatchResult(Block: true, Reason: reason, Version: s.Version);
         }
-        reason = Side(s.Challenge, i, n4, w);
+        reason = Side(s.Challenge, i, n4, w, paths, deny: true);
         if (reason != null)
         {
             return new MatchResult(Challenge: true, Reason: reason, Version: s.Version);

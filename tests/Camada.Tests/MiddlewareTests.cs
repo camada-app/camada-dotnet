@@ -37,6 +37,21 @@ public class MiddlewareTests
     }
 
     [Fact]
+    public void PathRulesSeeTheRawTargetNotTheDecodedPath()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = "/blocked-path";   // what Kestrel decodes /%62locked-path into
+        ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestFeature>()!.RawTarget = "/%62locked-path?x=1";
+        Assert.Equal("/%62locked-path", CamadaMiddleware.ReqOf(ctx).RawPath);
+
+        var bare = new DefaultHttpContext();   // no origin-form target: PathBase + Path
+        bare.Request.PathBase = "/app";
+        bare.Request.Path = "/a";
+        bare.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestFeature>()!.RawTarget = "*";
+        Assert.Equal("/app/a", CamadaMiddleware.ReqOf(bare).RawPath);
+    }
+
+    [Fact]
     public void RepeatedHeadersJoinWithACommaExceptCookie()
     {
         var req = new Req { Headers = new List<KeyValuePair<string, string>> { new("accept", "a"), new("accept", "b"), new("cookie", "x=1"), new("cookie", "y=2") } };
