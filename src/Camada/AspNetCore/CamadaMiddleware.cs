@@ -166,7 +166,7 @@ public sealed class CamadaMiddleware
             {
                 try
                 {
-                    if (p.Rid != null)
+                    if (p.Rid != null && ctx.Response.StatusCode != StatusCodes.Status101SwitchingProtocols)   // never on a websocket handshake: the rid stays with the event
                     {
                         ctx.Response.Headers["x-rid"] = p.Rid;
                     }

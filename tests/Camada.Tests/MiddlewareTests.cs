@@ -131,6 +131,22 @@ public class MiddlewareTests
     }
 
     [Fact]
+    public void A101HandshakeCarriesNoRid()
+    {
+        using var h = new Host(new FakeAnalyst(), handler: ctx =>
+        {
+            ctx.Response.StatusCode = StatusCodes.Status101SwitchingProtocols;   // what Kestrel's upgrade sets before it starts the response
+            return Task.CompletedTask;
+        });
+        var r = h.Call("GET", "/ws", headers: new[] { ("Upgrade", "websocket"), ("Connection", "Upgrade") });
+        Assert.Equal(101, r.Status);
+        Assert.Null(r.Header("x-rid"));
+        var ev = Assert.Single(h.Events());
+        Assert.Equal(101, ev["st"].GetInt32());
+        Assert.False(string.IsNullOrEmpty(ev["rid"].GetString()));
+    }
+
+    [Fact]
     public void TheStampRidesOnStartingSoAnAppThatClearsHeadersStillCarriesIt()
     {
         using var h = new Host(new FakeAnalyst(), handler: ctx =>

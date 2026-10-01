@@ -113,11 +113,12 @@ Outside the generic host (a bare `IApplicationBuilder`), `UseCamada()` alone fal
 5. Serves the beacon: `GET /_cam/b.js` (the `@camada/browser` build, vendored as an embedded
    resource) and `POST /_cam/fp` (≤ 32 KB, relayed onto the event batch as a `sig: 1` row with the
    ip camada resolved). Both fall through to your app when the tenant switched the beacon off.
-6. Runs your app with `x-rid` and the `_sfp` session cookie on its response (stamped from
-   `Response.OnStarting`, so a handler that clears headers still carries them), the context in
-   `HttpContext.Items["camada"]`, and when the response is done ships one redacted event: method,
-   host, path, scrubbed query, status, latency, header names/sizes/order, the matched route
-   pattern, the auth scheme (never the credential), cookie count (never values). An exception in
+6. Runs your app with `x-rid` (the rid of the request's event row; never on a 101 handshake) and
+   the `_sfp` session cookie on its response (stamped from `Response.OnStarting`, so a handler that
+   clears headers still carries them), the context in `HttpContext.Items["camada"]`, and when the
+   response is done ships one redacted event: method, host, path, scrubbed query, status, latency,
+   header names/sizes/order, the matched route pattern, the auth scheme (never the credential),
+   cookie count (never values). An exception in
    your app ships as `st: 500` and propagates unchanged.
 
 ## Options
