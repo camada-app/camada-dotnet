@@ -194,7 +194,7 @@ public sealed class CamadaEngine
 
         // Enforce before anything else, beacon endpoints included — fail open while cold. The
         // custom rules read the user agent and the request headers (§D3).
-        var v = Snap.Verdict(new MatchInput { Ip = ip, Path = req.Path, Ua = req.Header("user-agent"), Header = req.Header });
+        var v = Snap.Verdict(new MatchInput { Ip = ip, Path = req.RawPath ?? req.Path, Ua = req.Header("user-agent"), Header = req.Header });
         if (v.Block)
         {
             var headers = new List<KeyValuePair<string, string>>

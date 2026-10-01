@@ -6,6 +6,7 @@ public sealed class Req
 {
     public string Method { get; init; } = "GET";
     public string Path { get; init; } = "/";                 // no query
+    public string? RawPath { get; init; }                    // the request target's path as sent (still percent-encoded, PathBase included); path rules match it, else Path
     public string Query { get; init; } = "";                 // with the leading '?', or ''
     public string Host { get; init; } = "";
     public string? HttpVersion { get; init; }
