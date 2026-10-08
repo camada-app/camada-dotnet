@@ -254,6 +254,35 @@ public class ClientTests
         Assert.Equal(0, dead.Status);
     }
 
+    [Fact]
+    public async Task HttpClientTransportKeepsA304WithGzipHeaderAndNoBody()
+    {
+        using var srv = new HttpListener();
+        var port = FreePort();
+        srv.Prefixes.Add($"http://127.0.0.1:{port}/");
+        srv.Start();
+        var serving = Task.Run(() =>
+        {
+            var ctx = srv.GetContext();
+            ctx.Response.StatusCode = 304;
+            ctx.Response.Headers["Content-Encoding"] = "gzip";
+            ctx.Response.Headers["Retry-After"] = "30";
+            ctx.Response.Close();
+        });
+        try
+        {
+            var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 2.0));
+            Assert.Equal(304, r.Status);
+            Assert.Equal("30", r.Headers["retry-after"]);
+            Assert.Empty(r.Body);
+            await serving.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            srv.Stop();
+        }
+    }
+
     internal static int FreePort()
     {
         using var s = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.InterNetwork, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp);

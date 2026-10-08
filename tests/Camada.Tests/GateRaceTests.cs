@@ -49,7 +49,8 @@ public class GateRaceTests
         Assert.True(aInsideDue.Wait(5000));
         releasePoll.Set();                             // B finishes: writes _notBefore, releases the slot
         SpinWait.SpinUntil(() => c.Due == false, 5000);
-        Thread.Sleep(50);
+        // c.Due flips once the slot is released; wait (bounded) until a Wait(0) would really succeed
+        Assert.True(SpinWait.SpinUntil(() => c.SlotFree, 5000));
         releaseA.Set();                                // A resumes: Due already evaluated as true -> Wait(0) succeeds
         threadA.Join(5000);
         Thread.Sleep(200);
