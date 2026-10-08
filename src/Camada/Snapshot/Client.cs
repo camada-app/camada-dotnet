@@ -40,6 +40,8 @@ public sealed class SnapshotClient
     private volatile Matcher? _matcher;
     private readonly bool _pinned;
     private string? _etag;
+    private long _notBefore;                          // failure gate: no self-initiated poll before this Ticks() reading (0: open)
+    internal Func<long> Ticks { get; set; } = () => Environment.TickCount64;   // test seam: the clock behind _loadedAt and _notBefore
     private long _loadedAt;                            // Environment.TickCount64 of the last accepted answer (0: none yet)
     private volatile bool _loaded;                     // an answer has been applied: the matcher (or its absence) is final
     private readonly SemaphoreSlim _loading = new(1, 1);
@@ -136,15 +138,47 @@ public sealed class SnapshotClient
         get
         {
             var at = Interlocked.Read(ref _loadedAt);
-            return at == 0 || Environment.TickCount64 - at > RefreshS * 900;
+            return at == 0 || Ticks() - at > RefreshS * 900;
         }
+    }
+
+    /// <summary>Stale and past the failure gate: what every self-initiated poll checks.</summary>
+    internal bool Due
+    {
+        get
+        {
+            var nb = Interlocked.Read(ref _notBefore);
+            return Stale && (nb == 0 || Ticks() - nb >= 0);
+        }
+    }
+
+    /// <summary>Seconds to wait after a poll that was not answered 200/204/304 (status 0: no answer); null when the
+    /// answer governs. min(max(retry-after, 5), refresh): the cap wins over the floor.</summary>
+    internal static double? NextPollDelay(int status, string? retryAfter, double refreshS)
+    {
+        if (status is 200 or 204 or 304)
+        {
+            return null;
+        }
+        return Math.Min(Math.Max(ParseRetryAfter(retryAfter), 5), Math.Max(refreshS, 0));
+    }
+
+    // Delta-seconds only (1+ ASCII digits after trimming SP/HTAB); anything else reads as 0.
+    private static double ParseRetryAfter(string? v)
+    {
+        var t = v?.Trim(' ', '\t');
+        if (string.IsNullOrEmpty(t) || !t.All(c => c is >= '0' and <= '9'))
+        {
+            return 0;
+        }
+        return t.Length > 9 ? 1e9 : long.Parse(t, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>Kicks a refresh when stale; never blocks the request path, never throws. The single-in-flight
     /// slot is taken here, synchronously, so two callers racing cannot both start a load.</summary>
     public void EnsureFresh()
     {
-        if (!Stale || !_loading.Wait(0))
+        if (!Due || !_loading.Wait(0))
         {
             return;
         }
@@ -191,12 +225,25 @@ public sealed class SnapshotClient
         {
             headers["x-camada-snapshot"] = SnapshotVersion.ToString(System.Globalization.CultureInfo.InvariantCulture);   // a tenant without that container is answered with the next one down
         }
-        var res = Transport(new TransportRequest("GET", Url, headers, null, TimeoutS));
-        if (res.Status is not (200 or 204 or 304))
+        TransportResponse res;
+        try
         {
-            return;   // 401/5xx/network: keep what we have
+            res = Transport(new TransportRequest("GET", Url, headers, null, TimeoutS));
         }
-        Interlocked.Exchange(ref _loadedAt, Math.Max(1, Environment.TickCount64));   // 0 is reserved for "never answered"
+        catch (Exception)   // a transport that throws is a poll nobody answered
+        {
+            res = new TransportResponse(0, new(), Array.Empty<byte>());
+        }
+        var delay = NextPollDelay(res.Status, res.Headers.GetValueOrDefault("retry-after"), RefreshS);
+        if (delay is { } d)
+        {
+            // 401/5xx/network: keep what we have (blocks, etag, config, loadedAt) and hold the next
+            // self-initiated poll back. Written before the single-flight slot is released.
+            Interlocked.Exchange(ref _notBefore, Math.Max(1, Ticks() + (long)Math.Ceiling(d * 1000)));
+            return;
+        }
+        Interlocked.Exchange(ref _notBefore, 0);
+        Interlocked.Exchange(ref _loadedAt, Math.Max(1, Ticks()));   // 0 is reserved for "never answered"
         ReadConfig(res.Headers.GetValueOrDefault("x-camada-config"));
         if (res.Status == 304)
         {
