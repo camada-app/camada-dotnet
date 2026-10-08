@@ -182,6 +182,11 @@ public sealed class SnapshotClient
         {
             return;
         }
+        if (!Due)   // a poll that failed between the check and the slot has just set the gate: release and leave
+        {
+            _loading.Release();
+            return;
+        }
         _ = Task.Run(LoadGuarded);
     }
 
@@ -230,8 +235,9 @@ public sealed class SnapshotClient
         {
             res = Transport(new TransportRequest("GET", Url, headers, null, TimeoutS));
         }
-        catch (Exception)   // a transport that throws is a poll nobody answered
+        catch (Exception err)   // a transport that throws is a poll nobody answered: logged, and gated as status 0
         {
+            Guarded.LogRateLimited(err);
             res = new TransportResponse(0, new(), Array.Empty<byte>());
         }
         var delay = NextPollDelay(res.Status, res.Headers.GetValueOrDefault("retry-after"), RefreshS);
