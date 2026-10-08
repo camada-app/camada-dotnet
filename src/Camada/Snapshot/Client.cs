@@ -142,6 +142,9 @@ public sealed class SnapshotClient
         }
     }
 
+    /// <summary>The single-flight slot is free (test seam).</summary>
+    internal bool SlotFree => _loading.CurrentCount > 0;
+
     /// <summary>Stale and past the failure gate: what every self-initiated poll checks.</summary>
     internal bool Due
     {
