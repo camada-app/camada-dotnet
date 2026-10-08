@@ -69,4 +69,79 @@ public class BackoffTests
             }
         }
     }
+
+    private static SnapshotClient Gated(out Func<int> requests, out Action<long> advance, out Action<bool> fail, Func<TransportRequest, TransportResponse>? inner = null)
+    {
+        var a = new FakeAnalyst();
+        var n = 0;
+        var failing = false;
+        long now = 1_000_000;
+        var c = new SnapshotClient("https://analyst.test/snapshot", "snap-test", refreshS: 30, mode: SnapshotMode.Lazy,
+            transport: req =>
+            {
+                if (inner != null)
+                {
+                    return inner(req);
+                }
+                if (!Volatile.Read(ref failing))
+                {
+                    return a.Transport(req);
+                }
+                Interlocked.Increment(ref n);
+                return new TransportResponse(503, new() { ["retry-after"] = "30" }, Array.Empty<byte>());
+            });
+        c.Ticks = () => Interlocked.Read(ref now);
+        requests = () => Volatile.Read(ref n);
+        advance = ms => Interlocked.Add(ref now, ms);
+        fail = f => Volatile.Write(ref failing, f);
+        return c;
+    }
+
+    /// <summary>Request path under a closed gate: warm, stale, 503 retry-after 30 -> one request per 30 s.</summary>
+    [Fact]
+    public void RequestPathHonoursTheGate()
+    {
+        var c = Gated(out var requests, out var advance, out var fail);
+        c.Refresh();                                    // warm with a 200
+        advance(28_000);                                // stale, gate open
+        fail(true);
+        c.EnsureFresh();
+        Assert.True(SpinWait.SpinUntil(() => !c.Due, 5000));
+        Thread.Sleep(50);                               // the slot is released after the gate is written
+        Assert.Equal(1, requests());
+        for (var i = 0; i < 20; i++)
+        {
+            c.EnsureFresh();
+        }
+        Thread.Sleep(200);
+        Assert.Equal(1, requests());                    // stale but not due
+        advance(30_000);
+        c.EnsureFresh();
+        Assert.True(SpinWait.SpinUntil(() => requests() >= 2, 5000));
+        Thread.Sleep(200);
+        Assert.Equal(2, requests());                    // gate elapsed: one more poll
+    }
+
+    /// <summary>A transport that throws is a poll nobody answered: gated as status 0 and still logged.</summary>
+    [Fact]
+    public void ThrowingTransportIsLoggedAndGated()
+    {
+        var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var old = Guarded.Sink;
+        try
+        {
+            Guarded.Sink = lines.Enqueue;
+            Guarded.ResetForTests();
+            var c = Gated(out _, out var advance, out _, _ => throw new InvalidOperationException("boom"));
+            c.Refresh();
+            Assert.Contains(lines, l => l.Contains("boom"));
+            Assert.False(c.Due);                        // gated as status 0
+            advance(5_000);
+            Assert.True(c.Due);                         // the 5 s floor elapsed
+        }
+        finally
+        {
+            Guarded.Sink = old;
+        }
+    }
 }
