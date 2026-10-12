@@ -22,6 +22,13 @@ public sealed class CamadaOptions
 
     public string ChallengePath { get; set; } = CamadaEngine.DefaultChallengePath;
 
+    /// <summary>The app listens on a unix socket (Kestrel `ListenUnixSocket`) behind a front end: requests have no
+    /// peer, and a cidrs trusted-proxy config walks X-Forwarded-For alone, trusting that front end to have written
+    /// it. A Kestrel unix-socket listener is also recognised by its local endpoint. Off (TCP), a request whose
+    /// `RemoteIpAddress` is null has an unreadable peer and gets no client ip, never the X-Forwarded-For walk
+    /// (contract C6 v3). The decision comes from the listener, never from the shape of the peer.</summary>
+    public bool UnixSocketListener { get; set; }
+
     /// <summary>5 asks for the custom rules too; 4 the sides only; 3 opts out of both.</summary>
     public int SnapshotVersion { get; set; } = Snapshot.SnapshotClient.DefaultSnapshotVersion;
 }

@@ -37,6 +37,7 @@ public sealed class CamadaEngine
     public string FpPath { get; }
     public string ChallengePath { get; }
     public bool ChallengeOn { get; }
+    public bool UnixSocketListener { get; }
     public Env? Env { get; }
     public SnapshotClient? Snap { get; }
     public EventQueue? Queue { get; }
@@ -52,6 +53,7 @@ public sealed class CamadaEngine
         ScriptPath = o.ScriptPath;
         FpPath = o.FpPath;
         ChallengePath = o.ChallengePath;
+        UnixSocketListener = o.UnixSocketListener;
         ChallengeOn = o.Challenge && _getEnv("CAMADA_CHALLENGE") != "0";
         Env = Camada.Env.Resolve(o.Env ?? Camada.Env.Process());
         if (Env == null || _getEnv(KillSwitchEnv) == "1")
@@ -126,7 +128,8 @@ public sealed class CamadaEngine
 
     private bool BeaconEnabled() => Snap != null && Snap.Config?.Beacon != false;
 
-    private string? IpOf(Req req) => Ip.ResolveClientIp(req.Peer, req.Header("x-forwarded-for"), TrustedProxyConfig());
+    // a socket whose peer could not be read: no client ip, never the XFF walk (C6 v3)
+    private string? IpOf(Req req) => req.PeerUnreadable ? null : Ip.ResolveClientIp(req.Peer, req.Header("x-forwarded-for"), TrustedProxyConfig());
 
     private static bool Secure(Req req) => req.Https || req.Header("x-forwarded-proto") == "https";
 
