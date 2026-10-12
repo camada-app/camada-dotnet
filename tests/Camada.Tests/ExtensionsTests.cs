@@ -112,12 +112,33 @@ public class ExtensionsTests : IDisposable
         var r = await Run(app, sp, "/export", html);
         Assert.Equal(403, r.Status);
         Assert.Equal("1", r.Headers["x-camada-challenge"]);
+        Assert.Equal(Challenge.Page.Csp(), r.Headers["content-security-policy"]);   // camada-all-y38o
         Assert.StartsWith("text/html", r.Headers["content-type"].ToString());
         var cch = _engine!.Kit!.Issue("172.16.0.9", _engine.NowMs());
         var passed = await Run(app, sp, "/export", html.Append(("cookie", $"_cch={cch}")).ToArray());
         Assert.Equal("file", passed.Body);
         _engine.Queue!.Flush();
         Assert.Equal(new[] { (403L, "challenge"), (200L, (string?)null) }, _a.AllEvents.Select(e => (e.I("st")!.Value, e.S("blk"))));   // one request, one event
+    }
+
+    [Fact]
+    public async Task TheChallengePageReplacesTheHostsCsp()
+    {
+        // camada-all-y38o: a strict app-wide policy set before the page would block its solver
+        var (app, sp, _) = Build(async ctx =>
+        {
+            ctx.Response.Headers["Content-Security-Policy"] = new Microsoft.Extensions.Primitives.StringValues(new[] { "default-src 'self'", "script-src 'none'" });
+            ctx.Response.Headers["Content-Security-Policy-Report-Only"] = "script-src 'none'";
+            var challenge = ctx.CamadaServeChallenge();
+            if (challenge != null)
+            {
+                await challenge.ExecuteAsync(ctx);
+            }
+        });
+        var r = await Run(app, sp, "/export", new[] { ("x-forwarded-for", "172.16.0.9"), ("accept", "text/html"), ("sec-fetch-dest", "document") });
+        Assert.Equal(403, r.Status);
+        Assert.Equal(new[] { Challenge.Page.Csp() }, r.Headers["content-security-policy"].ToArray());
+        Assert.False(r.Headers.ContainsKey("content-security-policy-report-only"));
     }
 
     [Fact]

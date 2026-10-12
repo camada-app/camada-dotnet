@@ -7,7 +7,12 @@
 //
 // The page carries its own SHA-256 rather than calling crypto.subtle: subtle is undefined on
 // non-secure origins (plain http on a LAN host), and 65k awaited digests would be slow anyway.
+//
+// CSP (camada-all-y38o): the inline script and style depend on `bits` alone (the solver reads the nonce
+// from the form), so Csp(bits) can allow exactly them by hash and a strict app policy cannot block the solver.
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Camada.Challenge;
 
@@ -54,7 +59,7 @@ public static class Page
         "  return s}\n";
 
     private const string Style =
-        ":root{color-scheme:light}\n" +
+        "\n:root{color-scheme:light}\n" +
         "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#fafafa;color:#1a1a1a;" +
         "font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}\n" +
         "main{max-width:28rem;padding:2rem;text-align:center}\n" +
@@ -64,41 +69,59 @@ public static class Page
         ".bar i{display:block;height:100%;width:30%;background:#1a1a1a;animation:camada-slide 1.1s ease-in-out infinite}\n" +
         "@keyframes camada-slide{0%{transform:translateX(-120%)}100%{transform:translateX(400%)}}\n";
 
+    private static readonly string?[] CspCache = new string?[33];
+
+    private static int ClampBits(int bits) => Math.Min(32, Math.Max(1, bits));   // shift 32-bits must stay in range
+
     /// <summary>`action` is the verify endpoint path; `to` has already been through SafeReturnTo.</summary>
-    public static string ChallengePage(string nonce, string action, string to, int bits = Format.PowBits)
+    public static string ChallengePage(string nonce, string action, string to, int bits = Format.PowBits) =>
+        "<!doctype html>\n" +
+        "<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n" +
+        "<title>Checking your browser</title>\n" +
+        "<style>" + Style + "</style></head>\n" +
+        "<body>\n" +
+        "<main>\n" +
+        "<h1>Checking your browser</h1>\n" +
+        "<p id=\"camada-msg\">This takes a moment. It runs entirely in your browser.</p>\n" +
+        "<noscript><p>JavaScript is required to continue.</p></noscript>\n" +
+        "<div class=\"bar\"><i></i></div>\n" +
+        "</main>\n" +
+        $"<form id=\"camada-f\" method=\"POST\" action=\"{Format.EscapeAttr(action)}\">\n" +
+        $"<input type=\"hidden\" name=\"nonce\" value=\"{Format.EscapeAttr(nonce)}\" id=\"camada-n\">\n" +
+        "<input type=\"hidden\" name=\"solution\" id=\"camada-s\">\n" +
+        $"<input type=\"hidden\" name=\"to\" value=\"{Format.EscapeAttr(to)}\">\n" +
+        "</form>\n" +
+        "<script>" + Script(bits) + "</script>\n" +
+        "</body></html>";
+
+    /// <summary>The page's one inline script. Depends on `bits` only: the nonce comes from the form, so its
+    /// hash is fixed per bits value.</summary>
+    private static string Script(int bits) =>
+        Solver + "\n" +
+        "(function(){\n" +
+        "  if(typeof window==='undefined'||window.__camadaAutostart===false)return;\n" +
+        $"  var nonce=document.getElementById('camada-n').value,shift={(32 - ClampBits(bits)).ToString(CultureInfo.InvariantCulture)};\n" +
+        "  function go(){\n" +
+        "    for(var n=0;n<5000000;n++){\n" +
+        "      if((__camadaSha256Words(nonce+'.'+n)[0]>>>shift)===0){\n" +
+        "        document.getElementById('camada-s').value=String(n);\n" +
+        "        document.getElementById('camada-f').submit();\n" +
+        "        return}}\n" +
+        "    document.getElementById('camada-msg').textContent='Could not complete the check. Please reload.'}\n" +
+        "  setTimeout(go,30);\n" +
+        "})();\n";
+
+    /// <summary>The `Content-Security-Policy` value to send with `ChallengePage(..., bits)` (camada-all-y38o): it
+    /// allows only the page's own inline script and style (by `'sha256-…'` hash), a form post to the same origin,
+    /// and nothing else, the same policy as @camada/core's challengePageCsp(). Send it as the response's only CSP,
+    /// removing any CSP or CSP-Report-Only the app set before.</summary>
+    public static string Csp(int bits = Format.PowBits)
     {
-        bits = Math.Min(32, Math.Max(1, bits));   // shift 32-bits must stay in range
-        return
-            "<!doctype html>\n" +
-            "<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n" +
-            "<title>Checking your browser</title>\n" +
-            "<style>\n" + Style + "</style></head>\n" +
-            "<body>\n" +
-            "<main>\n" +
-            "<h1>Checking your browser</h1>\n" +
-            "<p id=\"camada-msg\">This takes a moment. It runs entirely in your browser.</p>\n" +
-            "<noscript><p>JavaScript is required to continue.</p></noscript>\n" +
-            "<div class=\"bar\"><i></i></div>\n" +
-            "</main>\n" +
-            $"<form id=\"camada-f\" method=\"POST\" action=\"{Format.EscapeAttr(action)}\">\n" +
-            $"<input type=\"hidden\" name=\"nonce\" value=\"{Format.EscapeAttr(nonce)}\">\n" +
-            "<input type=\"hidden\" name=\"solution\" id=\"camada-s\">\n" +
-            $"<input type=\"hidden\" name=\"to\" value=\"{Format.EscapeAttr(to)}\">\n" +
-            "</form>\n" +
-            "<script>" + Solver + "\n" +
-            "(function(){\n" +
-            "  if(typeof window==='undefined'||window.__camadaAutostart===false)return;\n" +
-            $"  var nonce={Format.EscapeScript(nonce)},shift={(32 - bits).ToString(CultureInfo.InvariantCulture)};\n" +
-            "  function go(){\n" +
-            "    for(var n=0;n<5000000;n++){\n" +
-            "      if((__camadaSha256Words(nonce+'.'+n)[0]>>>shift)===0){\n" +
-            "        document.getElementById('camada-s').value=String(n);\n" +
-            "        document.getElementById('camada-f').submit();\n" +
-            "        return}}\n" +
-            "    document.getElementById('camada-msg').textContent='Could not complete the check. Please reload.'}\n" +
-            "  setTimeout(go,30);\n" +
-            "})();\n" +
-            "</script>\n" +
-            "</body></html>";
+        var b = ClampBits(bits);
+        return CspCache[b] ??=   // a racing thread computes the same string
+            $"default-src 'none'; script-src 'sha256-{Sha256Base64(Script(b))}'; style-src 'sha256-{Sha256Base64(Style)}'; " +
+            "form-action 'self'; base-uri 'none'; frame-ancestors 'self'";
     }
+
+    private static string Sha256Base64(string s) => Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(s)));
 }

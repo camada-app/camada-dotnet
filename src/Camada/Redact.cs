@@ -27,6 +27,23 @@ public static partial class Redact
 
     private static bool SuspectValue(string v) => JwtRe().IsMatch(v) || HexRe().IsMatch(v) || B64Re().IsMatch(v);
 
+    /// <summary>A URL (a Referer) with its query and fragment run through ScrubQuery (camada-all-ijsa); the
+    /// scheme, host and path are kept as they are. The path gets the same treatment as the request's own path
+    /// `p` (none): a same-origin Referer's path already shipped as `p` on that page's own event, and a
+    /// cross-origin one carries only the origin under the browsers' default policy.</summary>
+    public static string? ScrubUrl(string? url)
+    {
+        if (url == null)
+        {
+            return null;
+        }
+        var hash = url.IndexOf('#');
+        var head = hash == -1 ? url : url[..hash];
+        var q = head.IndexOf('?');
+        var scrubbed = q == -1 ? head : head[..q] + ScrubQuery(head[q..]);
+        return hash == -1 ? scrubbed : scrubbed + "#" + ScrubQuery(url[(hash + 1)..]);
+    }
+
     /// <summary>Replaces credential-looking query values with ~r, preserving structure and order.</summary>
     public static string ScrubQuery(string? query)
     {

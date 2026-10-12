@@ -201,7 +201,58 @@ public class ChallengeTests
             var kit = new Kit("secret");
             var nonce = kit.Nonce(IpAddr, Now);
             Assert.True(kit.Verify(IpAddr, Now, nonce, Solver.Solve(nonce)));
-            Assert.Contains($"var nonce=\"{nonce}\"", Page.ChallengePage(nonce: nonce, action: "/v", to: "/"));
+            Assert.Contains($"name=\"nonce\" value=\"{nonce}\" id=\"camada-n\"", Page.ChallengePage(nonce: nonce, action: "/v", to: "/"));
+        }
+
+        [Fact]
+        public void ByteIdenticalToTheFamilyPage()
+        {
+            // the page @camada/core serves (src/challenge/page.ts, camada-all-mwpo), pinned by its digest:
+            // sha256 of challengePage({ nonce: '0'.repeat(32), action: '/__camada/challenge', to: '/' })
+            var bytes = Encoding.UTF8.GetBytes(Page.ChallengePage(nonce: new string('0', 32), action: "/__camada/challenge", to: "/"));
+            Assert.Equal("c80afc5fe51bae26f1baa7da9bcecc505aa0b62d347f3ac668209bcc75887f22", Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant());
+            Assert.Equal(3810, bytes.Length);
+        }
+
+        private static string Between(string html, string open, string close)
+        {
+            var a = html.IndexOf(open, StringComparison.Ordinal) + open.Length;
+            return html[a..html.IndexOf(close, a, StringComparison.Ordinal)];
+        }
+
+        private static string Hash(string s) => $"'sha256-{Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(s)))}'";
+
+        [Fact]
+        public void InlineScriptNoLongerCarriesTheNonce()
+        {
+            // camada-all-y38o: one script (one hash) per bits value; the solver reads the nonce from the form
+            var a = Page.ChallengePage(nonce: string.Concat(Enumerable.Repeat("ab", 16)), action: "/v", to: "/");
+            var b = Page.ChallengePage(nonce: string.Concat(Enumerable.Repeat("cd", 16)), action: "/v", to: "/x");
+            Assert.Equal(Between(a, "<script>", "</script>"), Between(b, "<script>", "</script>"));
+            Assert.DoesNotContain("abab", Between(a, "<script>", "</script>"));
+            Assert.Contains("document.getElementById('camada-n').value", Between(a, "<script>", "</script>"));
+        }
+
+        [Fact]
+        public void CspAllowsExactlyItsOwnInlineScriptAndStyle()
+        {
+            foreach (var bits in new[] { 1, 12, 16, 32 })
+            {
+                var html = Page.ChallengePage(nonce: new string('0', 32), action: "/v", to: "/", bits: bits);
+                var csp = Page.Csp(bits);
+                Assert.Contains($"script-src {Hash(Between(html, "<script>", "</script>"))};", csp);
+                Assert.Contains($"style-src {Hash(Between(html, "<style>", "</style>"))};", csp);
+                Assert.Contains("default-src 'none'", csp);
+                Assert.Contains("form-action 'self'", csp);
+                Assert.DoesNotContain("unsafe", csp);
+            }
+            // the same policy @camada/core's challengePageCsp(16) sends
+            Assert.Equal(
+                "default-src 'none'; script-src 'sha256-ciEqEwbzJaoB3rni2OdS8TuYa+/yFdFMAkRscUn8z8k='; " +
+                "style-src 'sha256-uTQFkKw4mZsBeb9oMeUmhuhVK7WwsKvYVU1JAzADMu0='; form-action 'self'; base-uri 'none'; frame-ancestors 'self'",
+                Page.Csp());
+            Assert.Equal(Page.Csp(32), Page.Csp(99));   // clamped like the page
+            Assert.NotEqual(Page.Csp(12), Page.Csp(16));
         }
     }
 }
