@@ -360,6 +360,7 @@ public sealed class CamadaEngine
         var headers = new List<KeyValuePair<string, string>>
         {
             new("content-type", "text/html; charset=utf-8"), new("cache-control", "no-store"), new("x-camada-challenge", "1"),
+            new("content-security-policy", Page.Csp()),   // its own policy replaces the app's (camada-all-y38o)
         };
         return new Answer(403, headers, Encoding.UTF8.GetBytes(html));
     }

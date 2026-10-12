@@ -98,7 +98,7 @@ public static partial class Builder
             ["fm"] = H("sec-fetch-mode"),
             ["fd"] = H("sec-fetch-dest"),
             ["fu"] = H("sec-fetch-user"),
-            ["ref"] = H("referer"),
+            ["ref"] = Redact.ScrubUrl(H("referer")),   // the previous page's query is scrubbed too
             ["org"] = H("origin"),
             ["xrw"] = H("x-requested-with"),
             ["auth"] = AuthScheme(H("authorization")),   // scheme only, never the credential
