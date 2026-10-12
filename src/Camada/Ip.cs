@@ -46,7 +46,39 @@ public static class Ip
         return IpParse.ParseIp6(ip) is [0, 0, 0, 1];
     }
 
-    private static bool ValidIp(string s) => s.Contains(':') ? IpParse.ParseIp6(s) != null : IpParse.ParseIp4(s) >= 0;
+    /// <summary>A plain IPv4 or IPv6 address (C6 v3), by grammar alone: ASCII hex groups, so embedded dotted quads,
+    /// zone ids and brackets fail (IpParse.ParseIp6); a single leading or trailing `:` (`:8:8:8`, `2001:db8::1:`) is
+    /// rejected here. Never IPAddress.TryParse, which accepts forms C6 rejects.</summary>
+    internal static bool ValidIp(string s)
+    {
+        if (!s.Contains(':'))
+        {
+            return IpParse.ParseIp4(s) >= 0;
+        }
+        var n = s.Length;
+        if (n < 2 || (s[0] == ':' && s[1] != ':') || (s[n - 1] == ':' && s[n - 2] != ':'))
+        {
+            return false;
+        }
+        return IpParse.ParseIp6(s) != null;
+    }
+
+    /// <summary>`::ffff:a.b.c.d` (any case) → a.b.c.d, only when a valid dotted quad follows; anything else is
+    /// returned unchanged (`::ffff:7f00:1` stays an ordinary IPv6 address).</summary>
+    internal static string Unmap(string s)
+    {
+        if (s.Length < 14 || !s.StartsWith("::ffff:", StringComparison.OrdinalIgnoreCase))
+        {
+            return s;
+        }
+        var v4 = s[7..];
+        return IpParse.ParseIp4(v4) >= 0 ? v4 : s;
+    }
+
+    /// <summary>Leading and trailing SP and HTAB only (HTTP OWS); never string.Trim(), which removes Unicode whitespace.</summary>
+    internal static string TrimOws(string s) => s.Trim(' ', '\t');
+
+    private static bool Trusted(string ip, List<Cidr> trusted) => ValidIp(ip) && trusted.Any(t => InCidr(ip, t));   // a non-IP entry is never a trusted hop
 
     private static Cidr? ParseCidr(string c)
     {
@@ -100,24 +132,30 @@ public static class Ip
         return true;
     }
 
-    /// <summary>The client IP from the socket peer and X-Forwarded-For per the trusted-proxy config.
-    /// Anything unresolvable falls back to the peer (fail safe).
-    /// <para>XFF entries are read without a port (`ip:port`, `[v6]:port`, as Azure writes them) in every mode (camada-all-0vho).</para>
+    /// <summary>The client IP from the socket peer and X-Forwarded-For per the trusted-proxy config (contract C6 v3).
+    /// The result is always a valid IP address or null, in every mode.
+    /// <para>XFF entries are trimmed of space and tab only, read without a port (`ip:port`, `[v6]:port`, as Azure
+    /// writes them) and with `::ffff:a.b.c.d` reduced to a.b.c.d, in every mode (camada-all-0vho). Several XFF
+    /// header lines arrive joined with `, `.</para>
+    /// <para>The peer is `RemoteIpAddress` with `::ffff:` removed before a dotted quad, when that is a valid IP; it
+    /// is never trimmed or port-stripped. A non-empty peer that is not a valid IP could not be read: the result
+    /// falls back to null, never to the XFF walk. Null or empty means no peer (a unix-socket listener).</para>
     /// <para>`cidrs` (also what the dashboard's Cloudflare option stores) walks the chain `[...xff, peer]` from the
     /// right (camada-all-yfc6): if the socket peer is not a trusted proxy, the request did not come through one and
     /// the peer IS the client; XFF is ignored, since anyone hitting the origin directly can write it. A loopback
     /// peer (127.0.0.0/8, ::1, ::ffff:127.x.x.x) counts as a trusted hop: a local front end or sidecar, which no
-    /// remote client can be. Loopback is trusted only as the peer, never as an XFF entry. With no peer at all the
-    /// walk runs over XFF alone, as before: the host's network edge is trusted to have written it. `hops` and
-    /// `vercel` trust XFF by definition and do not look at the peer.</para></summary>
+    /// remote client can be. Loopback is trusted only as the peer, never as an XFF entry; an XFF entry that is not
+    /// a valid IP is never a trusted hop. With no peer at all the walk runs over XFF alone: the host's network edge
+    /// is trusted to have written it. `hops` and `vercel` trust XFF by definition and do not look at the peer.</para></summary>
     public static string? ResolveClientIp(string? peer, string? xff, TrustedProxy? cfg)
     {
-        var sock = peer != null && peer.StartsWith("::ffff:", StringComparison.OrdinalIgnoreCase) ? peer[7..] : peer;   // dual-stack v4-mapped form
+        var mapped = string.IsNullOrEmpty(peer) ? null : Unmap(peer);   // dual-stack v4-mapped form
+        var sock = mapped != null && ValidIp(mapped) ? mapped : null;
         if (cfg == null || cfg.Mode == "none" || string.IsNullOrEmpty(xff))
         {
             return sock;
         }
-        var entries = xff.Split(',').Select(e => StripPort(e.Trim())).Where(e => e.Length > 0).ToList();
+        var entries = xff.Split(',').Select(e => Unmap(StripPort(TrimOws(e)))).Where(e => e.Length > 0).ToList();
         if (entries.Count == 0)
         {
             return sock;
@@ -136,13 +174,13 @@ public static class Ip
                 break;
             case "cidrs":
                 var trusted = (cfg.Cidrs ?? Array.Empty<string>()).Select(ParseCidr).Where(c => c != null).Cast<Cidr>().ToList();
-                if (sock != null && !IsLoopback(sock) && !trusted.Any(t => InCidr(sock, t)))
+                if (mapped != null && (sock == null || (!IsLoopback(sock) && !Trusted(sock, trusted))))
                 {
-                    return sock;   // the peer is the first hop: no trusted proxy wrote this XFF
+                    return sock;   // the peer is the first hop: no trusted proxy wrote this XFF; an unreadable peer never walks
                 }
                 for (var i = entries.Count - 1; i >= 0; i--)
                 {
-                    if (!trusted.Any(t => InCidr(entries[i], t)))
+                    if (!Trusted(entries[i], trusted))
                     {
                         candidate = entries[i];
                         break;

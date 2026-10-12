@@ -36,6 +36,44 @@ public class MiddlewareTests
         Assert.Null(req.Header("x-nope"));
     }
 
+    // C6 v3 adapter row (dotnet): RemoteIpAddress is the peer; null on a TCP listener = unreadable (no client ip,
+    // never the XFF walk); a unix-socket listener has no peer, so cidrs walks X-Forwarded-For alone.
+    [Theory]
+    [InlineData(false, "172.64.1.1", "198.51.100.9")]            // through the edge
+    [InlineData(false, "::ffff:203.0.113.200", "203.0.113.200")]  // a direct hit: the peer
+    [InlineData(false, null, null)]                                // unreadable on TCP
+    [InlineData(true, null, "198.51.100.9")]                       // UnixSocketListener: the walk
+    public void PeerIsRemoteIpAddressAndAnUnreadableOneNeverWalksXff(bool unix, string? peer, string? ip)
+    {
+        var a = new FakeAnalyst();
+        using var h = new Host(a, env: new() { ["CAMADA_TRUSTED_PROXY"] = "cidrs:172.64.0.0/13" }, configure: o => o.UnixSocketListener = unix);
+        h.Call(headers: new[] { ("X-Forwarded-For", "1.2.3.4, 198.51.100.9, 172.64.1.1") }, peer: peer);
+        var evs = h.Events();
+        Assert.Equal(ip, evs[^1]["ip"].ValueKind == System.Text.Json.JsonValueKind.Null ? null : evs[^1]["ip"].GetString());
+    }
+
+    [Fact]
+    public void AKestrelUnixSocketEndpointMeansNoPeer()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Features.Set<Microsoft.AspNetCore.Connections.Features.IConnectionEndPointFeature>(new EndPoints { LocalEndPoint = new System.Net.Sockets.UnixDomainSocketEndPoint("/run/app.sock") });
+        var unix = CamadaMiddleware.ReqOf(ctx);
+        Assert.Null(unix.Peer);
+        Assert.False(unix.PeerUnreadable);
+        var tcp = CamadaMiddleware.ReqOf(new DefaultHttpContext());   // no RemoteIpAddress on a TCP listener
+        Assert.Null(tcp.Peer);
+        Assert.True(tcp.PeerUnreadable);
+        var configured = CamadaMiddleware.ReqOf(new DefaultHttpContext(), unixSocketListener: true);
+        Assert.False(configured.PeerUnreadable);
+    }
+
+    private sealed class EndPoints : Microsoft.AspNetCore.Connections.Features.IConnectionEndPointFeature
+    {
+        public EndPoint? LocalEndPoint { get; set; }
+
+        public EndPoint? RemoteEndPoint { get; set; }
+    }
+
     [Fact]
     public void PathRulesSeeTheRawTargetNotTheDecodedPath()
     {

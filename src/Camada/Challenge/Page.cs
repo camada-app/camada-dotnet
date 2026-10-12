@@ -112,15 +112,16 @@ public static class Page
         "})();\n";
 
     /// <summary>The `Content-Security-Policy` value to send with `ChallengePage(..., bits)` (camada-all-y38o): it
-    /// allows only the page's own inline script and style (by `'sha256-…'` hash), a form post to the same origin,
-    /// and nothing else, the same policy as @camada/core's challengePageCsp(). Send it as the response's only CSP,
-    /// removing any CSP or CSP-Report-Only the app set before.</summary>
+    /// allows only the page's own inline script and style (by `'sha256-…'` hash) and nothing else, the same policy
+    /// as @camada/core's challengePageCsp(). There is no `form-action`: browsers apply it to the redirects that
+    /// follow the POST too, so an app that 302s on to an external sign-in after verify's 302 would be blocked. Send
+    /// it as the response's only CSP, removing any CSP or CSP-Report-Only the app set before.</summary>
     public static string Csp(int bits = Format.PowBits)
     {
         var b = ClampBits(bits);
         return CspCache[b] ??=   // a racing thread computes the same string
             $"default-src 'none'; script-src 'sha256-{Sha256Base64(Script(b))}'; style-src 'sha256-{Sha256Base64(Style)}'; " +
-            "form-action 'self'; base-uri 'none'; frame-ancestors 'self'";
+            "base-uri 'none'; frame-ancestors 'self'";
     }
 
     private static string Sha256Base64(string s) => Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(s)));
