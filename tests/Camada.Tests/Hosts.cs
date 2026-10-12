@@ -159,6 +159,7 @@ public sealed class Host : IDisposable
             ctx.Request.ContentLength = contentLength ?? body.Length;
         }
         ctx.Request.Body = seekable ? new MemoryStream(body) : new NonSeekableStream(body);
+        ctx.Connection.LocalIpAddress = IPAddress.Loopback;   // a TCP listener: Kestrel always sets the local address
         ctx.Connection.RemoteIpAddress = peer == null ? null : IPAddress.Parse(peer);
         var outBody = new MemoryStream();
         ctx.Response.Body = outBody;

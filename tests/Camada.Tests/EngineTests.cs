@@ -514,10 +514,12 @@ public class ChallengeFlowTests
         Assert.Equal(403, r.Status);
         Assert.Null(r.Header("set-cookie"));
         Assert.Contains("camada-f", r.Text);
+        Assert.Equal(Camada.Challenge.Page.Csp(), r.Header("content-security-policy"));   // the re-served page carries its own policy
         var forged = new string('f', 32);
         r = h.Call("POST", "/__camada/challenge", body: Encoding.UTF8.GetBytes($"nonce={forged}&solution={Solver.Solve(forged)}&to=%2F"), peer: FakeAnalyst.ChallengedIp);
         Assert.Equal(403, r.Status);
         Assert.Null(r.Header("set-cookie"));
+        Assert.Equal(Camada.Challenge.Page.Csp(), r.Header("content-security-policy"));
     }
 
     [Fact]

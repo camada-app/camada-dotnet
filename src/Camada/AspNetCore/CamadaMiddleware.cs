@@ -4,7 +4,6 @@
 // HttpContext.Items["camada"], and OnFinish(status) fired exactly once — with 500 when the app
 // throws, the exception propagating unchanged.
 using System.Net.Sockets;
-using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
@@ -64,16 +63,18 @@ public sealed class CamadaMiddleware
         await Run(ctx, (Passed)result).ConfigureAwait(false);
     }
 
-    /// <summary>The engine's request from the ASP.NET Core one, as on a TCP listener unless Kestrel reports a unix-socket
-    /// local endpoint.</summary>
+    /// <summary>The engine's request from the ASP.NET Core one; the listener kind comes from the connection's local
+    /// address (see the overload).</summary>
     public static Req ReqOf(HttpContext ctx) => ReqOf(ctx, false);
 
-    /// <summary>The engine's request from the ASP.NET Core one. The peer is `RemoteIpAddress`; on a unix-socket listener
-    /// (configured, or Kestrel's local endpoint is a UnixDomainSocketEndPoint) there is none, so a cidrs config walks
-    /// X-Forwarded-For alone; on a TCP listener a null one marks the peer unreadable (no client ip).</summary>
+    /// <summary>The engine's request from the ASP.NET Core one. The peer is `RemoteIpAddress`; on a unix-socket (or
+    /// named-pipe) listener there is none, so a cidrs config walks X-Forwarded-For alone; on a TCP listener a null one
+    /// marks the peer unreadable (no client ip). The listener is a socket one when configured, or when the connection
+    /// has neither a local nor a remote ip address: Kestrel's TCP transport always sets the local one, while its
+    /// unix-socket and named-pipe transports leave both null (and expose no IConnectionEndPointFeature on .NET 8).</summary>
     public static Req ReqOf(HttpContext ctx, bool unixSocketListener)
     {
-        var unix = unixSocketListener || ctx.Features.Get<IConnectionEndPointFeature>()?.LocalEndPoint is UnixDomainSocketEndPoint;
+        var unix = unixSocketListener || (ctx.Connection.LocalIpAddress == null && ctx.Connection.RemoteIpAddress == null);
         var r = ctx.Request;
         var headers = new List<KeyValuePair<string, string>>();
         foreach (var (k, vs) in r.Headers)
@@ -157,9 +158,10 @@ public sealed class CamadaMiddleware
         {
             if (string.Equals(k, "content-security-policy", StringComparison.OrdinalIgnoreCase))
             {
-                // the challenge page brings its own policy: one the app set earlier would block its solver
-                ctx.Response.Headers.Remove("Content-Security-Policy-Report-Only");
-                ctx.Response.Headers[k] = v;
+                // the challenge page brings its own policy: one the app set earlier would block its solver, and
+                // one set later from Response.OnStarting is undone by Run's callback (see PageCsp)
+                PageCsp(ctx, v);
+                ctx.Items[CspKey] = v;
                 continue;
             }
             ctx.Response.Headers.Append(k, v);
@@ -171,34 +173,46 @@ public sealed class CamadaMiddleware
         }
     }
 
+    private const string CspKey = "camada.csp";
+
+    private static void PageCsp(HttpContext ctx, string policy)
+    {
+        ctx.Response.Headers.Remove("Content-Security-Policy-Report-Only");
+        ctx.Response.Headers.ContentSecurityPolicy = policy;
+    }
+
     private async Task Run(HttpContext ctx, Passed p)
     {
         if (p.Ctx != null)
         {
             ctx.Items[ItemKey] = p.Ctx;
         }
-        if (p.Rid != null || p.SetCookie != null)
+        // Registered before the app runs, so the server (which fires OnStarting callbacks in reverse registration
+        // order) runs it after every callback the app's middleware adds: a challenge page served by
+        // CamadaServeChallenge() keeps its policy even when a header middleware sets CSP from OnStarting.
+        ctx.Response.OnStarting(() =>
         {
-            ctx.Response.OnStarting(() =>
+            try
             {
-                try
+                if (ctx.Items.TryGetValue(CspKey, out var csp) && csp is string policy)
                 {
-                    if (p.Rid != null && ctx.Response.StatusCode != StatusCodes.Status101SwitchingProtocols)   // never on a websocket handshake: the rid stays with the event
-                    {
-                        ctx.Response.Headers["x-rid"] = p.Rid;
-                    }
-                    if (p.SetCookie != null)
-                    {
-                        ctx.Response.Headers.Append("Set-Cookie", p.SetCookie);
-                    }
+                    PageCsp(ctx, policy);
                 }
-                catch (Exception err)
+                if (p.Rid != null && ctx.Response.StatusCode != StatusCodes.Status101SwitchingProtocols)   // never on a websocket handshake: the rid stays with the event
                 {
-                    Guarded.LogRateLimited(err);
+                    ctx.Response.Headers["x-rid"] = p.Rid;
                 }
-                return Task.CompletedTask;
-            });
-        }
+                if (p.SetCookie != null)
+                {
+                    ctx.Response.Headers.Append("Set-Cookie", p.SetCookie);
+                }
+            }
+            catch (Exception err)
+            {
+                Guarded.LogRateLimited(err);
+            }
+            return Task.CompletedTask;
+        });
         var fired = false;
         void Finish(int status)
         {

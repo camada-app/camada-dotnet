@@ -5,10 +5,12 @@ using System.Net;
 using System.Text;
 using Camada.AspNetCore;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Camada.Tests;
 
@@ -139,6 +141,72 @@ public class ExtensionsTests : IDisposable
         Assert.Equal(403, r.Status);
         Assert.Equal(new[] { Challenge.Page.Csp() }, r.Headers["content-security-policy"].ToArray());
         Assert.False(r.Headers.ContainsKey("content-security-policy-report-only"));
+    }
+
+    // camada-all-y38o RB-3: a header middleware between UseCamada() and the endpoint that sets its CSP from
+    // Response.OnStarting runs after the challenge page is written. Kestrel fires OnStarting callbacks in reverse
+    // registration order, so camada's own callback (registered by UseCamada before the app ran) fires last and puts
+    // the page's policy back. A real Kestrel server, so the ordering is the server's, not the test driver's.
+    [Fact]
+    public async Task TheChallengePageBeatsACspSetFromOnStartingInsideUseCamada()
+    {
+        var merged = new Dictionary<string, string?>(Hosts.Env) { ["CAMADA_TRUSTED_PROXY"] = "hops:1" };
+        var b = WebApplication.CreateSlimBuilder();
+        b.Logging.ClearProviders();
+        b.WebHost.UseUrls("http://127.0.0.1:0");
+        b.Services.AddCamada(o =>
+        {
+            o.Env = merged;
+            o.Transport = _a.Transport;
+        });
+        await using var app = b.Build();
+        app.UseCamada();
+        app.Use(async (ctx, next) =>
+        {
+            ctx.Response.OnStarting(() =>
+            {
+                ctx.Response.Headers["Content-Security-Policy"] = "default-src 'self'";
+                ctx.Response.Headers["Content-Security-Policy-Report-Only"] = "script-src 'none'";
+                return Task.CompletedTask;
+            });
+            await next(ctx);
+        });
+        app.Run(async ctx =>
+        {
+            var challenge = ctx.CamadaServeChallenge();
+            if (challenge != null)
+            {
+                await challenge.ExecuteAsync(ctx);
+                return;
+            }
+            await ctx.Response.WriteAsync("file");
+        });
+        await app.StartAsync();
+        try
+        {
+            _engine = app.Services.GetRequiredService<CamadaEngine>();
+            Hosts.Loaded(_engine);
+            using var http = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };
+            using var msg = new HttpRequestMessage(HttpMethod.Get, "/export");
+            msg.Headers.TryAddWithoutValidation("X-Forwarded-For", "172.16.0.9");
+            msg.Headers.TryAddWithoutValidation("Accept", "text/html");
+            msg.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+            using var r = await http.SendAsync(msg);
+            Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+            Assert.Equal(new[] { Challenge.Page.Csp() }, r.Headers.GetValues("Content-Security-Policy"));
+            Assert.False(r.Headers.Contains("Content-Security-Policy-Report-Only"));
+            // a passed request keeps the app's own policy
+            using var ok = new HttpRequestMessage(HttpMethod.Get, "/export");
+            ok.Headers.TryAddWithoutValidation("X-Forwarded-For", "172.16.0.9");
+            ok.Headers.TryAddWithoutValidation("Accept", "text/html");
+            ok.Headers.TryAddWithoutValidation("Cookie", $"_cch={_engine.Kit!.Issue("172.16.0.9", _engine.NowMs())}");
+            using var passed = await http.SendAsync(ok);
+            Assert.Equal(new[] { "default-src 'self'" }, passed.Headers.GetValues("Content-Security-Policy"));
+        }
+        finally
+        {
+            await app.StopAsync();
+        }
     }
 
     [Fact]

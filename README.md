@@ -108,10 +108,11 @@ Outside the generic host (a bare `IApplicationBuilder`), `UseCamada()` alone fal
    Application Gateway writes them) resolve to the address, and `::ffff:a.b.c.d` entries to
    `a.b.c.d`. The result is always a valid ip or null: a null `RemoteIpAddress` on a TCP
    listener gives null, never the `X-Forwarded-For` walk. On a unix-socket listener (Kestrel
-   `ListenUnixSocket`, recognised by its local endpoint, or `AddCamada(o => o.UnixSocketListener
-   = true)`) there is no peer: the walk reads `X-Forwarded-For` alone, trusting the front end on
-   the socket to have written it. The listener decides this, never the shape of the peer. The SDK never
-   reads the peer through ASP.NET Core's forwarded-headers middleware — if you add
+   `ListenUnixSocket` or a named pipe, recognised by the connection having no local or remote ip
+   address, where TCP always has a local one; or `AddCamada(o => o.UnixSocketListener = true)`)
+   there is no peer: the walk reads `X-Forwarded-For` alone, trusting the front end on the socket
+   to have written it. The listener decides this, never the shape of the peer. The SDK never reads
+   the peer through ASP.NET Core's forwarded-headers middleware — if you add
    `UseForwardedHeaders()`, keep `UseCamada()` before it, so camada judges the raw header itself.
 3. Enforces before anything else, beacon endpoints included: your ordered custom rules first (first
    match wins; they read ip, path, user-agent and request headers), then allow → block → challenge.
@@ -121,7 +122,8 @@ Outside the generic host (a bare `IApplicationBuilder`), `UseCamada()` alone fal
 4. Challenge: a `challenge` verdict gets the self-contained proof-of-work page (or 403 JSON for a
    non-HTML request). The page sends its own `Content-Security-Policy`, which allows only its
    inline script and style by hash, in place of any CSP or CSP-Report-Only the app set earlier on
-   the response, so a strict app-wide policy cannot block the solver; `POST /__camada/challenge` verifies the solution, sets `_cch` (bound to the
+   the response (or sets later from `Response.OnStarting` in a middleware after `UseCamada()`, as
+   `CamadaServeChallenge()` serves it), so a strict app-wide policy cannot block the solver; `POST /__camada/challenge` verifies the solution, sets `_cch` (bound to the
    ip, one hour) and 302s back. A request whose ip cannot be resolved is never challenged.
 5. Serves the beacon: `GET /_cam/b.js` (the `@camada/browser` build, vendored as an embedded
    resource) and `POST /_cam/fp` (≤ 32 KB, relayed onto the event batch as a `sig: 1` row with the
