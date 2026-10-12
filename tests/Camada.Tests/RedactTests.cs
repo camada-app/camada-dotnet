@@ -20,6 +20,19 @@ public class RedactTests
     }
 
     [Fact]
+    public void ScrubUrlScrubsTheQueryAndFragmentOnly()
+    {
+        // camada-all-ijsa: a Referer carries the previous page's query (reset tokens, OAuth codes)
+        Assert.Equal("https://a.test/reset?token=~r&code=~r", Redact.ScrubUrl("https://a.test/reset?token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.s&code=4/0Ab"));
+        Assert.Equal("https://a.test/p?token=~r#code=~r", Redact.ScrubUrl("https://a.test/p?token=abc#code=def"));
+        Assert.Equal("https://a.test/cb#access_token=~r&expires_in=3599", Redact.ScrubUrl("https://a.test/cb#access_token=ya29&expires_in=3599"));
+        Assert.Equal("https://a.test/orders/8812?page=2#reviews", Redact.ScrubUrl("https://a.test/orders/8812?page=2#reviews"));   // the path is not scrubbed
+        Assert.Equal("https://a.test/p?", Redact.ScrubUrl("https://a.test/p?"));
+        Assert.Equal("/reset?token=~r", Redact.ScrubUrl("/reset?token=abc"));
+        Assert.Null(Redact.ScrubUrl(null));
+    }
+
+    [Fact]
     public void ScrubQueryKeepsShapeAndEmpties()
     {
         Assert.Equal("", Redact.ScrubQuery(""));

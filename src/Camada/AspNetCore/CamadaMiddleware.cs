@@ -145,6 +145,13 @@ public sealed class CamadaMiddleware
         ctx.Response.StatusCode = a.Status;
         foreach (var (k, v) in a.Headers)
         {
+            if (string.Equals(k, "content-security-policy", StringComparison.OrdinalIgnoreCase))
+            {
+                // the challenge page brings its own policy: one the app set earlier would block its solver
+                ctx.Response.Headers.Remove("Content-Security-Policy-Report-Only");
+                ctx.Response.Headers[k] = v;
+                continue;
+            }
             ctx.Response.Headers.Append(k, v);
         }
         ctx.Response.ContentLength = a.Body.Length;

@@ -23,6 +23,20 @@ public class BuildTests
     }
 
     [Fact]
+    public void RefererShipsWithItsCredentialsScrubbed()
+    {
+        // camada-all-ijsa: the request's own query was scrubbed, the Referer's was not
+        const string jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTQyIn0.sig-sig-sig";
+        var ev = Builder.BuildWireEvent(Req(new[] { H("Referer", $"https://shop.test/reset-password?token={jwt}&code=4/0AbCdEf"), H("Origin", "https://shop.test") }), tap: "sdk-dotnet", rid: "r1");
+        Assert.Equal("https://shop.test/reset-password?token=~r&code=~r", ev["ref"]);
+        Assert.Equal("https://shop.test", ev["org"]);
+        var json = System.Text.Json.JsonSerializer.Serialize(ev);
+        Assert.DoesNotContain(jwt, json);
+        Assert.DoesNotContain("4/0AbCdEf", json);
+        Assert.Null(Builder.BuildWireEvent(Req(Array.Empty<KeyValuePair<string, string>>()), tap: "sdk-dotnet", rid: "r2")["ref"]);
+    }
+
+    [Fact]
     public void EventFieldsAndCounters()
     {
         var headers = new[] { H("Accept", "text/html"), H("Cookie", "a=1; b=2"), H("Authorization", "Bearer t"), H("Accept", "*/*"), H("User-Agent", "ua") };
