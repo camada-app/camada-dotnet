@@ -218,6 +218,16 @@ Two anchors read wider than in JS: `$` also matches before a final `\n`, and `.`
   also drains on `ProcessExit` (what a bare `CamadaEngine.Default` relies on). No signal handlers
   are installed — an app owns its own shutdown — so a process killed outright may drop its last
   batch.
+- Header middleware registered **before** `UseCamada()` that sets `Cache-Control` or
+  `Content-Security-Policy` from `Response.OnStarting` wins on camada's own answers (the block
+  `403` and the challenge page or `403` JSON). Its callback was registered first, the server runs
+  `OnStarting` callbacks in reverse order, so it runs after camada wrote the answer and overwrites
+  the answer's `cache-control: no-store` and the challenge page's own CSP: a shared cache may keep
+  a block, and a strict policy blocks the solver so a challenged visitor cannot pass. Headers set
+  directly (not from `OnStarting`) are fine, camada replaces them. Either register such middleware
+  after `UseCamada()` (a challenge served by `CamadaServeChallenge()` keeps its CSP there), or have
+  its callback skip camada's answers: a response carrying `x-camada-challenge`, or a `403` carrying
+  `x-block-reason`.
 - Serverless: `CAMADA_SERVERLESS=1`. A cold invocation fails open and catches up on the next one.
 - The poll is a plain background task, not an `IHostedService`: it needs no host to run under and
   starts with the engine. A hosted-service wrapper is deferred on purpose.
