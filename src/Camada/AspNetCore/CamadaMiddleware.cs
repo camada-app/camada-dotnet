@@ -4,6 +4,7 @@
 // HttpContext.Items["camada"], and OnFinish(status) fired exactly once — with 500 when the app
 // throws, the exception propagating unchanged.
 using System.Net.Sockets;
+using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
@@ -41,7 +42,7 @@ public sealed class CamadaMiddleware
         byte[]? body = null;
         try
         {
-            req = ReqOf(ctx);
+            req = ReqOf(ctx, eng.UnixSocketListener);
             var limit = eng.WantsBody(req.Method, req.Path);
             if (limit is { } cap)
             {
@@ -63,8 +64,16 @@ public sealed class CamadaMiddleware
         await Run(ctx, (Passed)result).ConfigureAwait(false);
     }
 
-    public static Req ReqOf(HttpContext ctx)
+    /// <summary>The engine's request from the ASP.NET Core one, as on a TCP listener unless Kestrel reports a unix-socket
+    /// local endpoint.</summary>
+    public static Req ReqOf(HttpContext ctx) => ReqOf(ctx, false);
+
+    /// <summary>The engine's request from the ASP.NET Core one. The peer is `RemoteIpAddress`; on a unix-socket listener
+    /// (configured, or Kestrel's local endpoint is a UnixDomainSocketEndPoint) there is none, so a cidrs config walks
+    /// X-Forwarded-For alone; on a TCP listener a null one marks the peer unreadable (no client ip).</summary>
+    public static Req ReqOf(HttpContext ctx, bool unixSocketListener)
     {
+        var unix = unixSocketListener || ctx.Features.Get<IConnectionEndPointFeature>()?.LocalEndPoint is UnixDomainSocketEndPoint;
         var r = ctx.Request;
         var headers = new List<KeyValuePair<string, string>>();
         foreach (var (k, vs) in r.Headers)
@@ -90,7 +99,8 @@ public sealed class CamadaMiddleware
             Query = r.QueryString.HasValue ? r.QueryString.Value! : "",
             Host = hostHeader.Length > 0 ? hostHeader : r.Host.Host,
             HttpVersion = proto.StartsWith("HTTP/", StringComparison.Ordinal) ? proto[5..] : null,
-            Peer = peer?.ToString(),
+            Peer = unix ? null : peer?.ToString(),
+            PeerUnreadable = !unix && peer == null,
             Https = r.IsHttps,
             Headers = headers,
         };

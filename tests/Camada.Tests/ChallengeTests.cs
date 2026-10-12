@@ -243,13 +243,13 @@ public class ChallengeTests
                 Assert.Contains($"script-src {Hash(Between(html, "<script>", "</script>"))};", csp);
                 Assert.Contains($"style-src {Hash(Between(html, "<style>", "</style>"))};", csp);
                 Assert.Contains("default-src 'none'", csp);
-                Assert.Contains("form-action 'self'", csp);
+                Assert.DoesNotContain("form-action", csp);   // it would block the redirects after verify's 302
                 Assert.DoesNotContain("unsafe", csp);
             }
             // the same policy @camada/core's challengePageCsp(16) sends
             Assert.Equal(
                 "default-src 'none'; script-src 'sha256-ciEqEwbzJaoB3rni2OdS8TuYa+/yFdFMAkRscUn8z8k='; " +
-                "style-src 'sha256-uTQFkKw4mZsBeb9oMeUmhuhVK7WwsKvYVU1JAzADMu0='; form-action 'self'; base-uri 'none'; frame-ancestors 'self'",
+                "style-src 'sha256-uTQFkKw4mZsBeb9oMeUmhuhVK7WwsKvYVU1JAzADMu0='; base-uri 'none'; frame-ancestors 'self'",
                 Page.Csp());
             Assert.Equal(Page.Csp(32), Page.Csp(99));   // clamped like the page
             Assert.NotEqual(Page.Csp(12), Page.Csp(16));

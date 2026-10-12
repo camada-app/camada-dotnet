@@ -86,9 +86,11 @@ public class BuildTests
     public void HordAndQueryAreCapped()
     {
         var headers = Enumerable.Range(0, 1000).Select(i => H("x-" + i, "v")).ToList();
-        var ev = Builder.BuildWireEvent(Req(headers, query: "?" + new string('a', 600)), tap: "sdk-dotnet", rid: "r");
+        var ev = Builder.BuildWireEvent(Req(headers, query: "?" + string.Concat(Enumerable.Repeat("a=1&", 150))), tap: "sdk-dotnet", rid: "r");
         Assert.Equal(2048, ((string)ev["hord"]!).Length);
         Assert.Equal(512, ((string)ev["q"]!).Length);
+        var bare = Builder.BuildWireEvent(Req(headers, query: "?" + new string('a', 600)), tap: "sdk-dotnet", rid: "r");
+        Assert.Equal("?~r", bare["q"]);   // a bare 600-char token-like part is scrubbed (C6 v2)
     }
 
     [Fact]

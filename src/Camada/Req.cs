@@ -10,7 +10,8 @@ public sealed class Req
     public string Query { get; init; } = "";                 // with the leading '?', or ''
     public string Host { get; init; } = "";
     public string? HttpVersion { get; init; }
-    public string? Peer { get; init; }                       // the socket peer the host vouches for
+    public string? Peer { get; init; }                       // the socket peer the host vouches for; null or "" = no peer (a unix-socket listener)
+    public bool PeerUnreadable { get; init; }                // a socket whose peer could not be read: the client ip is null (C6 v3)
     public bool Https { get; init; }
     public IList<KeyValuePair<string, string>> Headers { get; init; } = new List<KeyValuePair<string, string>>();
     public string? Route { get; set; }                       // the matched route pattern, when the host knows it at finish time

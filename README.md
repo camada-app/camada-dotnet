@@ -105,7 +105,12 @@ Outside the generic host (a bare `IApplicationBuilder`), `UseCamada()` alone fal
    the origin cannot pick its own ip. A loopback peer (127.0.0.0/8, `::1`) counts as a trusted
    hop, since it is a local front end or sidecar; behind one, the walk reads `X-Forwarded-For`
    from the right as before. Entries carrying a port (`ip:port`, `[v6]:port`, as Azure
-   Application Gateway writes them) resolve to the address. The SDK never
+   Application Gateway writes them) resolve to the address, and `::ffff:a.b.c.d` entries to
+   `a.b.c.d`. The result is always a valid ip or null: a null `RemoteIpAddress` on a TCP
+   listener gives null, never the `X-Forwarded-For` walk. On a unix-socket listener (Kestrel
+   `ListenUnixSocket`, recognised by its local endpoint, or `AddCamada(o => o.UnixSocketListener
+   = true)`) there is no peer: the walk reads `X-Forwarded-For` alone, trusting the front end on
+   the socket to have written it. The listener decides this, never the shape of the peer. The SDK never
    reads the peer through ASP.NET Core's forwarded-headers middleware — if you add
    `UseForwardedHeaders()`, keep `UseCamada()` before it, so camada judges the raw header itself.
 3. Enforces before anything else, beacon endpoints included: your ordered custom rules first (first
