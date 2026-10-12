@@ -24,7 +24,8 @@ public sealed class CamadaOptions
 
     /// <summary>The app listens on a unix socket (Kestrel `ListenUnixSocket`) behind a front end: requests have no
     /// peer, and a cidrs trusted-proxy config walks X-Forwarded-For alone, trusting that front end to have written
-    /// it. A Kestrel unix-socket listener is also recognised by its local endpoint. Off (TCP), a request whose
+    /// it. A Kestrel unix-socket or named-pipe listener is also recognised without it: its connections have neither a local
+    /// nor a remote ip address (`Connection.LocalIpAddress`, which a TCP listener always sets, is null). Off (TCP), a request whose
     /// `RemoteIpAddress` is null has an unreadable peer and gets no client ip, never the X-Forwarded-For walk
     /// (contract C6 v3). The decision comes from the listener, never from the shape of the peer.</summary>
     public bool UnixSocketListener { get; set; }
