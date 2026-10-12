@@ -1,10 +1,14 @@
 // What only the ASP.NET Core host can show: the HttpContext mapping, a body camada read being
 // replayed to the app, the OnStarting stamp, and OnFinish firing exactly once.
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using Camada.AspNetCore;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Logging;
 
 namespace Camada.Tests;
 
@@ -52,26 +56,73 @@ public class MiddlewareTests
         Assert.Equal(ip, evs[^1]["ip"].ValueKind == System.Text.Json.JsonValueKind.Null ? null : evs[^1]["ip"].GetString());
     }
 
+    // camada-all-0vho RB-1: a real Kestrel ListenUnixSocket listener (.NET 8) exposes no IConnectionEndPointFeature and
+    // leaves LocalIpAddress/RemoteIpAddress null, so the listener is recognised by the missing local address alone:
+    // without UnixSocketListener the request must still walk X-Forwarded-For, never read as an unreadable TCP peer.
     [Fact]
-    public void AKestrelUnixSocketEndpointMeansNoPeer()
+    public async Task ARealKestrelUnixSocketListenerWalksXffWithoutTheOption()
     {
-        var ctx = new DefaultHttpContext();
-        ctx.Features.Set<Microsoft.AspNetCore.Connections.Features.IConnectionEndPointFeature>(new EndPoints { LocalEndPoint = new System.Net.Sockets.UnixDomainSocketEndPoint("/run/app.sock") });
-        var unix = CamadaMiddleware.ReqOf(ctx);
-        Assert.Null(unix.Peer);
-        Assert.False(unix.PeerUnreadable);
-        var tcp = CamadaMiddleware.ReqOf(new DefaultHttpContext());   // no RemoteIpAddress on a TCP listener
-        Assert.Null(tcp.Peer);
-        Assert.True(tcp.PeerUnreadable);
-        var configured = CamadaMiddleware.ReqOf(new DefaultHttpContext(), unixSocketListener: true);
+        if (OperatingSystem.IsWindows())
+        {
+            return;   // AF_UNIX on Windows Kestrel is not what this guards; the unix-socket deployments are Linux
+        }
+        var sock = Path.Combine(Path.GetTempPath(), $"camada-{Guid.NewGuid():N}.sock"[..32]);
+        var a = new FakeAnalyst();
+        using var engine = new EngineHandle(Hosts.EngineWith(a, new() { ["CAMADA_TRUSTED_PROXY"] = "cidrs:172.64.0.0/13" }));
+        Hosts.Loaded(engine.E);
+        var b = WebApplication.CreateSlimBuilder();
+        b.Logging.ClearProviders();
+        b.WebHost.ConfigureKestrel(k => k.ListenUnixSocket(sock));
+        await using var app = b.Build();
+        app.Use(next => new CamadaMiddleware(next, engine.E).InvokeAsync);
+        app.Run(Hosts.Hello);
+        await app.StartAsync();
+        try
+        {
+            using var http = new HttpClient(new SocketsHttpHandler
+            {
+                ConnectCallback = async (_, ct) =>
+                {
+                    var s = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                    await s.ConnectAsync(new UnixDomainSocketEndPoint(sock), ct);
+                    return new NetworkStream(s, ownsSocket: true);
+                },
+            });
+            using var msg = new HttpRequestMessage(HttpMethod.Get, "http://x.test/");
+            msg.Headers.TryAddWithoutValidation("X-Forwarded-For", "1.2.3.4, 198.51.100.9, 172.64.1.1");
+            using var r = await http.SendAsync(msg);   // 198.51.100.9 may be blocked by the container: only the ip matters
+            List<Dictionary<string, System.Text.Json.JsonElement>> evs = new();
+            Hosts.WaitUntil(() => { engine.E.Queue!.Flush(); evs = a.AllEvents; return evs.Count > 0; });
+            Assert.Equal("198.51.100.9", Assert.Single(evs).S("ip"));
+        }
+        finally
+        {
+            await app.StopAsync();
+            File.Delete(sock);
+        }
+    }
+
+    [Fact]
+    public void ANullRemoteIpOnATcpListenerIsUnreadable()
+    {
+        var tcp = new DefaultHttpContext();   // a TCP listener always sets LocalIpAddress
+        tcp.Connection.LocalIpAddress = IPAddress.Loopback;
+        Assert.Null(CamadaMiddleware.ReqOf(tcp).Peer);
+        Assert.True(CamadaMiddleware.ReqOf(tcp).PeerUnreadable);
+        var socket = CamadaMiddleware.ReqOf(new DefaultHttpContext());   // no local address: a unix socket or named pipe
+        Assert.Null(socket.Peer);
+        Assert.False(socket.PeerUnreadable);
+        var configured = CamadaMiddleware.ReqOf(tcp, unixSocketListener: true);
         Assert.False(configured.PeerUnreadable);
     }
 
-    private sealed class EndPoints : Microsoft.AspNetCore.Connections.Features.IConnectionEndPointFeature
+    private sealed class EngineHandle : IDisposable
     {
-        public EndPoint? LocalEndPoint { get; set; }
+        public EngineHandle(CamadaEngine e) => E = e;
 
-        public EndPoint? RemoteEndPoint { get; set; }
+        public CamadaEngine E { get; }
+
+        public void Dispose() => E.Stop();
     }
 
     [Fact]
