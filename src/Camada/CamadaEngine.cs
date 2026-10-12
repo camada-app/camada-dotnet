@@ -202,7 +202,8 @@ public sealed class CamadaEngine
         {
             var headers = new List<KeyValuePair<string, string>>
             {
-                new("content-type", "text/plain"), new("x-block-reason", v.Reason ?? ""), new("x-block-version", v.Version ?? ""),
+                new("content-type", "text/plain"), new("cache-control", "no-store"),   // per-visitor: no shared cache keeps it (camada-all-8lp6)
+                new("x-block-reason", v.Reason ?? ""), new("x-block-version", v.Version ?? ""),
             };
             if (v.Rule != null)
             {

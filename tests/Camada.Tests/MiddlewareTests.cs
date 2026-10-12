@@ -116,6 +116,24 @@ public class MiddlewareTests
         Assert.False(configured.PeerUnreadable);
     }
 
+    // camada-all-8lp6: a middleware ahead of camada marks every response public; the per-visitor block 403 must
+    // go out with only no-store, or a shared cache serves it to the next visitor
+    [Fact]
+    public async Task ABlockReplacesACacheControlSetBeforeIt()
+    {
+        using var engine = new EngineHandle(Hosts.EngineWith(new FakeAnalyst()));
+        Hosts.Loaded(engine.E);
+        var ran = false;
+        var mw = new CamadaMiddleware(_ => { ran = true; return Task.CompletedTask; }, engine.E);
+        var ctx = new DefaultHttpContext();
+        ctx.Connection.RemoteIpAddress = IPAddress.Parse(FakeAnalyst.BlockedIp);
+        ctx.Response.Headers.CacheControl = "public, max-age=600";
+        await mw.InvokeAsync(ctx);
+        Assert.False(ran);
+        Assert.Equal(403, ctx.Response.StatusCode);
+        Assert.Equal(new[] { "no-store" }, ctx.Response.Headers.CacheControl.ToArray());
+    }
+
     private sealed class EngineHandle : IDisposable
     {
         public EngineHandle(CamadaEngine e) => E = e;

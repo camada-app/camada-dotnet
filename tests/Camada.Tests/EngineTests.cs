@@ -46,6 +46,7 @@ public class InlineBlockingTests
         Assert.Equal("ip4", r.Header("x-block-reason"));
         Assert.Equal(a.MetaVersion, r.Header("x-block-version"));
         Assert.Equal("text/plain", r.Header("content-type"));
+        Assert.Equal("no-store", r.Header("cache-control"));   // per-visitor: no shared cache keeps it (camada-all-8lp6)
         Assert.Null(r.Header("x-block-rule"));
         Assert.Empty(h.Seen);
         var ev = Assert.Single(h.Events());
@@ -397,6 +398,7 @@ public class RulesTests
         Assert.Equal(403, r.Status);
         Assert.Equal("rule", r.Header("x-block-reason"));
         Assert.Equal("builtin:block", r.Header("x-block-rule"));
+        Assert.Equal("no-store", r.Header("cache-control"));
         var ev = Assert.Single(h.Events());
         Assert.Equal("rule", ev.S("blk"));
         Assert.Equal("builtin:block", ev.S("rl"));

@@ -164,6 +164,13 @@ public sealed class CamadaMiddleware
                 ctx.Items[CspKey] = v;
                 continue;
             }
+            if (string.Equals(k, "cache-control", StringComparison.OrdinalIgnoreCase))
+            {
+                // a block or challenge answer is per-visitor: a public cache-control a middleware set earlier would
+                // let a shared cache keep it (camada-all-8lp6)
+                ctx.Response.Headers.CacheControl = v;
+                continue;
+            }
             ctx.Response.Headers.Append(k, v);
         }
         ctx.Response.ContentLength = a.Body.Length;
