@@ -18,7 +18,7 @@ public static class Paths
     private const string Hex = "0123456789abcdef";
 
     // already canonical: the common case skips the byte walk
-    private static readonly Regex Canonical = new(@"^(?:/(?!\.\.?(?:/|$))[a-z0-9\-._~!$&'()*+,=:@]+)+$", RegexOptions.CultureInvariant);
+    private static readonly Regex Canonical = new(@"^(?:/(?!\.\.?(?:/|$))[a-z0-9\-._~!$&'()*+,=:@]+)+\z", RegexOptions.CultureInvariant);
 
     private static int HexVal(byte c) => c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
 
@@ -86,7 +86,35 @@ public static class Paths
     public static string[] Forms(string? raw)
     {
         var p = StripQuery(raw);
-        return IsCanonical(p) ? [p, p, p] : [p, Canon(p, false), Canon(p, true)];
+        return IsCanonical(p) ? [p, p, p] : [EncodeControls(p), Canon(p, false), Canon(p, true)];
+    }
+
+    /// <summary>The raw form with each [\x00-\x1f\x7f] char written %xx, so a decoded path cannot carry one.</summary>
+    private static string EncodeControls(string p)
+    {
+        var i = 0;
+        while (i < p.Length && p[i] >= 0x20 && p[i] != 0x7f)
+        {
+            i++;
+        }
+        if (i == p.Length)
+        {
+            return p;
+        }
+        var sb = new StringBuilder(p.Length + 8).Append(p, 0, i);
+        for (; i < p.Length; i++)
+        {
+            var c = p[i];
+            if (c < 0x20 || c == 0x7f)
+            {
+                sb.Append('%').Append(Hex[c >> 4]).Append(Hex[c & 15]);
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString();
     }
 
     private static string Dir(string p) => p.EndsWith('/') ? p : p + "/";
@@ -114,12 +142,12 @@ public static class Paths
         deny ? pred(forms[0]) || pred(forms[1]) || pred(forms[2]) : pred(forms[1]) && pred(forms[2]);
 
     /// <summary>One path condition -> a predicate over a single path form.</summary>
-    public static Func<string, bool> Pred(string op, IReadOnlyList<string> values)
+    public static Func<string, bool> Pred(string op, IReadOnlyList<string> values, bool deny)
     {
         if (op == "matches")
         {
             var rx = Parser.CompileRegex(values[0], ignoreCase: true);
-            return p => rx != null && Parser.Search(rx, p);
+            return p => rx != null && (p.Length > Parser.MaxMatchInput ? deny : Parser.Search(rx, p));
         }
         if (op == "starts_with")
         {

@@ -232,6 +232,32 @@ public static class Parser
         return CmpWords(s, o, w) <= 0 && CmpWords(s, o + 4, w) >= 0;
     }
 
+    /// <summary>Longest ua/header/path value a `matches` regex reads, in UTF-16 code units (string.Length).</summary>
+    public const int MaxMatchInput = 2048;
+
+    /// <summary>Deletes every [\x00-\x1f\x7f] char: no engine then disagrees about a trailing newline.</summary>
+    public static string StripControls(string v)
+    {
+        var i = 0;
+        while (i < v.Length && v[i] >= 0x20 && v[i] != 0x7f)
+        {
+            i++;
+        }
+        if (i == v.Length)
+        {
+            return v;
+        }
+        var sb = new System.Text.StringBuilder(v.Length).Append(v, 0, i);
+        for (; i < v.Length; i++)
+        {
+            if (v[i] >= 0x20 && v[i] != 0x7f)
+            {
+                sb.Append(v[i]);
+            }
+        }
+        return sb.ToString();
+    }
+
     /// <summary>A pattern this runtime rejects never matches, and never throws (fail open). Patterns are
     /// authored as JS regexes (the analyst validates them with `new RegExp`), so ECMAScript mode is tried
     /// first — it keeps \d \w \b ASCII and reads `[^]`, `\cX` and named groups as JS does — and a spelling
@@ -339,7 +365,7 @@ public static class Parser
         if (f == "path")
         {
             // every path op reads the canonical forms (Paths.cs): a deny any spelling, a skip every one
-            var pred = Paths.Pred(op, values);
+            var pred = Paths.Pred(op, values, deny);
             return r => Paths.Hit(pred, r.Paths, deny);
         }
         // A header condition reads the request through the caller's getter. The name is lower-cased
@@ -389,10 +415,20 @@ public static class Parser
         if (op == "matches")
         {
             var rx = CompileRegex(values[0]);
+            var strip = f is "ua" or "header";
             return r =>
             {
                 var v = read(r);
-                return v != null && rx != null && Search(rx, v);
+                if (v == null || rx == null)
+                {
+                    return false;
+                }
+                if (strip)
+                {
+                    v = StripControls(v);
+                }
+                // over the cap the regex never runs: a deny rule hits, a skip rule misses (never truncate)
+                return v.Length > MaxMatchInput ? deny : Search(rx, v);
             };
         }
         if (op == "contains")
