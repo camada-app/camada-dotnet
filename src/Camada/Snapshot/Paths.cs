@@ -147,7 +147,7 @@ public static class Paths
         if (op == "matches")
         {
             var rx = Parser.CompileRegex(values[0], ignoreCase: true);
-            return p => rx != null && (p.Length > Parser.MaxMatchInput ? deny : Parser.Search(rx, p));
+            return p => rx != null && (p.Length > Parser.MaxMatchInput ? deny : Parser.Search(rx, p, deny));
         }
         if (op == "starts_with")
         {

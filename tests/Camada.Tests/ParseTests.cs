@@ -105,11 +105,29 @@ public class ParseTests
     }
 
     [Fact]
-    public void ACatastrophicPatternTimesOutAsNoMatch()
+    public void ACatastrophicPatternTimingOutFailsClosedForDenyAndMissForSkip()
     {
-        var m = RulesSnapshot("""[{"id":"slow","action":"block","conds":[{"f":"ua","op":"matches","v":"^(a+)+$"}]}]""");
-        Assert.False(m.Match(new MatchInput { Ua = new string('a', 40) + "b" }).Block);
-        Assert.True(m.Match(new MatchInput { Ua = "aaa" }).Block);
+        string slow = new string('a', 40) + "b";
+        var deny = RulesSnapshot("""[{"id":"slow","action":"block","conds":[{"f":"ua","op":"matches","v":"^(a+)+$"}]}]""");
+        Assert.True(deny.Match(new MatchInput { Ua = slow }).Block);      // the 50 ms timeout answers deny
+        Assert.True(deny.Match(new MatchInput { Ua = "aaa" }).Block);
+        Assert.False(deny.Match(new MatchInput { Ua = "aab " }).Block);
+        var path = RulesSnapshot("""[{"id":"sp","action":"block","conds":[{"f":"path","op":"matches","v":"^/(a+)+$"}]}]""");
+        Assert.True(path.Match(new MatchInput { Path = "/" + slow }).Block);
+        var skip = RulesSnapshot("""
+            [{"id":"s","action":"skip","conds":[{"f":"ua","op":"matches","v":"^(a+)+$"}]},
+             {"id":"e","action":"warn","conds":[{"f":"ua","op":"contains","v":"b"}]}]
+            """);
+        Assert.Equal("e", Rule(skip, new MatchInput { Ua = slow }));       // a skip rule misses
+    }
+
+    [Fact]
+    public void SearchAnswersTheCallersFailureValueOnATimeout()
+    {
+        var rx = new System.Text.RegularExpressions.Regex("^(a+)+$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(1));
+        string slow = new string('a', 40) + "b";
+        Assert.True(Parser.Search(rx, slow, onFailure: true));
+        Assert.False(Parser.Search(rx, slow));
     }
 
     [Fact]
