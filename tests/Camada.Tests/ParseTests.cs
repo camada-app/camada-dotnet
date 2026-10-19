@@ -152,8 +152,8 @@ public class ParseTests
         var m = RulesSnapshot("""[{"id":"ver","action":"block","conds":[{"f":"path","op":"matches","v":"^/api/(?<ver>v\\d+)/"}]}]""");
         Assert.Equal("ver", m.Match(new MatchInput { Path = "/api/v2/dump" }).Rule);
         Assert.Null(m.Match(new MatchInput { Path = "/api/v٣/dump" }).Rule);   // \d is ASCII, as JS reads it
-        var m2 = RulesSnapshot("""[{"id":"any","action":"block","conds":[{"f":"ua","op":"matches","v":"^a[^]b\\cJ$"}]}]""");
-        Assert.Equal("any", m2.Match(new MatchInput { Ua = "a\nb\n" }).Rule);
+        var m2 = RulesSnapshot("""[{"id":"any","action":"block","conds":[{"f":"ua","op":"matches","v":"^a[^]b$"}]}]""");
+        Assert.Equal("any", m2.Match(new MatchInput { Ua = "a b" }).Rule);
         Assert.Null(m2.Match(new MatchInput { Ua = "ab" }).Rule);
     }
 
@@ -198,5 +198,63 @@ public class ParseTests
         t1.Join();
         t2.Join();
         Assert.Equal(new[] { 0, 0 }, wrong);
+    }
+
+    private static string MRule(string id, string action, string f, string? name, string rx) =>
+        "{\"id\":\"" + id + "\",\"action\":\"" + action + "\",\"conds\":[{\"f\":\"" + f + "\",\"op\":\"matches\","
+        + (name == null ? "" : "\"name\":\"" + name + "\",") + "\"v\":\"" + rx.Replace("\\", "\\\\") + "\"}]}";
+
+    private static string? Rule(Matcher m, MatchInput i) => m.Match(i).Rule;
+
+    [Fact]
+    public void MatchesCapsInputFailingClosedForDenyAndMissForSkip()
+    {
+        var deny = RulesSnapshot("[" + string.Join(",", MRule("u", "warn", "ua", null, "(Scrapy|python-requests)/[0-9]"),
+            MRule("h", "challenge", "header", "x-v", @"^1\.[0-2]\."), MRule("p", "block", "path", null, "^/api/v[0-9]+/dump$")) + "]");
+        string? Ua(string v) => Rule(deny, new MatchInput { Ua = v });
+        string? Hd(string v) => Rule(deny, new MatchInput { Header = _ => v });
+        string? Pa(string v) => Rule(deny, new MatchInput { Path = v });
+        Assert.Null(Ua(new string('a', 2048)));
+        Assert.Equal("u", Ua(new string('a', 2049)));
+        Assert.Null(Ua(string.Concat(Enumerable.Repeat("é", 2048))));
+        Assert.Null(Ua(string.Concat(Enumerable.Repeat("😀", 1024))));
+        Assert.Equal("u", Ua(string.Concat(Enumerable.Repeat("😀", 1025))));
+        Assert.Null(Ua("Mozilla/5.0 " + new string('a', 2036) + "\t"));
+        Assert.Equal("h", Hd(new string('9', 2049)));
+        Assert.Null(Hd(new string('9', 2048)));
+        Assert.Null(Pa("/x/" + new string('a', 2045)));
+        Assert.Equal("p", Pa("/x/" + new string('a', 2046)));
+        Assert.Equal("p", Pa("/" + string.Concat(Enumerable.Repeat("%61", 700))));
+        Assert.Null(Pa("/x?" + new string('q', 3000)));
+
+        var skip = RulesSnapshot("[" + string.Join(",", MRule("s", "skip", "ua", null, "^uptime-probe/[0-9]"),
+            MRule("sp", "skip", "path", null, "^/static-mirror/"), MRule("e", "warn", "ua", null, "Scrapy"),
+            MRule("c", "block", "path", null, "^/api/v[0-9]+/dump$")) + "]");
+        const string up = "uptime-probe/1 ";
+        const string sm = "/static-mirror/";
+        Assert.Equal("s", Rule(skip, new MatchInput { Ua = up + new string('a', 2033) }));
+        Assert.Equal("e", Rule(skip, new MatchInput { Ua = up + new string('a', 2034) }));
+        Assert.Equal("sp", Rule(skip, new MatchInput { Path = sm + new string('a', 2033) }));
+        Assert.Equal("c", Rule(skip, new MatchInput { Path = sm + new string('a', 2034) }));
+        Assert.Equal("sp", Rule(skip, new MatchInput { Path = sm + string.Concat(Enumerable.Repeat("%61", 700)) }));
+        Assert.Equal("c", Rule(skip, new MatchInput { Path = sm + string.Concat(Enumerable.Repeat("./", 1100)) + "x" }));
+    }
+
+    [Fact]
+    public void ControlCharsAreStrippedFromUaAndHeaderForMatchesOnly()
+    {
+        var m = RulesSnapshot("[" + string.Join(",", MRule("e", "warn", "ua", null, "(Scrapy|python-requests)/[0-9]"),
+            MRule("s", "skip", "header", "x-p", "^partner-[a-z]+$"),
+            """{"id":"k","action":"block","conds":[{"f":"ua","op":"contains","v":"curl/"}]}""",
+            MRule("c", "block", "path", null, "^/api/v[0-9]+/dump$")) + "]");
+        Assert.Equal("e", Rule(m, new MatchInput { Ua = "python-requests\0/2.32.0" }));
+        Assert.Equal("e", Rule(m, new MatchInput { Ua = "Scrapy\t/2.11" }));
+        Assert.Equal("e", Rule(m, new MatchInput { Ua = "python-requests/\x7f" + "2" }));
+        Assert.Null(Rule(m, new MatchInput { Ua = "cu\0rl/8.4.0" }));
+        Assert.Equal("s", Rule(m, new MatchInput { Header = _ => "partner-acme\n" }));
+        Assert.Null(Rule(m, new MatchInput { Path = "/api/v2/dump\n" }));
+        Assert.Null(Rule(m, new MatchInput { Path = "/api/v2/dump%0A" }));
+        Assert.Equal("c", Rule(m, new MatchInput { Path = "/api/v2/dump" }));
+        Assert.Equal(new[] { "/a%0a%7f", "/a%0a%7f", "/a%0a%7f" }, Paths.Forms("/a\n\x7f"));
     }
 }
