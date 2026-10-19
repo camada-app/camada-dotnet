@@ -425,12 +425,18 @@ public static class Parser
                 {
                     return false;
                 }
+                // over the cap the regex never runs: a deny rule hits, a skip rule misses (never truncate)
+                bool F(string s) => s.Length > MaxMatchInput ? deny : Search(rx, s, deny);
                 if (strip)
                 {
-                    v = StripControls(v);
+                    var s = StripControls(v);
+                    if (!ReferenceEquals(s, v))
+                    {
+                        // control chars present: a deny rule tests raw and stripped, a skip never exempts
+                        return deny && (F(v) || F(s));
+                    }
                 }
-                // over the cap the regex never runs: a deny rule hits, a skip rule misses (never truncate)
-                return v.Length > MaxMatchInput ? deny : Search(rx, v, deny);
+                return F(v);
             };
         }
         if (op == "contains")

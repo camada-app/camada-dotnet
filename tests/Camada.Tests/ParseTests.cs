@@ -237,7 +237,8 @@ public class ParseTests
         Assert.Null(Ua(string.Concat(Enumerable.Repeat("é", 2048))));
         Assert.Null(Ua(string.Concat(Enumerable.Repeat("😀", 1024))));
         Assert.Equal("u", Ua(string.Concat(Enumerable.Repeat("😀", 1025))));
-        Assert.Null(Ua("Mozilla/5.0 " + new string('a', 2036) + "\t"));
+        // camada-all-wh9m: a deny reads the raw value too; raw 2049 is over the cap (v2 pinned a miss)
+        Assert.Equal("u", Ua("Mozilla/5.0 " + new string('a', 2036) + "\t"));
         Assert.Equal("h", Hd(new string('9', 2049)));
         Assert.Null(Hd(new string('9', 2048)));
         Assert.Null(Pa("/x/" + new string('a', 2045)));
@@ -259,6 +260,24 @@ public class ParseTests
     }
 
     [Fact]
+    public void DenyReadsRawAndStrippedAndSkipNeverTakesAControlChar()
+    {
+        var m = RulesSnapshot("[" + string.Join(",", MRule("t", "block", "ua", null, @"a\tb"), MRule("q", "block", "ua", null, "sqlmap"),
+            MRule("ht", "block", "header", "x-h", @"a\tb"), MRule("hq", "block", "header", "x-q", "sqlmap")) + "]");
+        Assert.Equal("t", Rule(m, new MatchInput { Ua = "a\tb" }));
+        Assert.Equal("q", Rule(m, new MatchInput { Ua = "sql\tmap" }));
+        Assert.Null(Rule(m, new MatchInput { Ua = "ab" }));
+        Assert.Equal("ht", Rule(m, new MatchInput { Header = n => n == "x-h" ? "a\tb" : null }));
+        Assert.Equal("hq", Rule(m, new MatchInput { Header = n => n == "x-q" ? "sql\tmap" : null }));
+        var s = RulesSnapshot("[" + string.Join(",", MRule("s", "skip", "ua", null, "^partner-[a-z]+$"), MRule("d", "block", "ua", null, "partner")) + "]");
+        Assert.Equal("s", Rule(s, new MatchInput { Ua = "partner-acme" }));
+        Assert.Equal("d", Rule(s, new MatchInput { Ua = "partner-acme\n" }));
+        var o = RulesSnapshot("[" + string.Join(",", MRule("s", "skip", "ua", null, "^a+$"), MRule("d", "block", "ua", null, "^zzz$")) + "]");
+        Assert.Equal("d", Rule(o, new MatchInput { Ua = new string('a', 2048) + "\t" }));
+        Assert.Equal("s", Rule(o, new MatchInput { Ua = new string('a', 2048) }));
+    }
+
+    [Fact]
     public void ControlCharsAreStrippedFromUaAndHeaderForMatchesOnly()
     {
         var m = RulesSnapshot("[" + string.Join(",", MRule("e", "warn", "ua", null, "(Scrapy|python-requests)/[0-9]"),
@@ -269,7 +288,9 @@ public class ParseTests
         Assert.Equal("e", Rule(m, new MatchInput { Ua = "Scrapy\t/2.11" }));
         Assert.Equal("e", Rule(m, new MatchInput { Ua = "python-requests/\x7f" + "2" }));
         Assert.Null(Rule(m, new MatchInput { Ua = "cu\0rl/8.4.0" }));
-        Assert.Equal("s", Rule(m, new MatchInput { Header = _ => "partner-acme\n" }));
+        // a skip never exempts a value with a control char (v2 pinned "s")
+        Assert.Null(Rule(m, new MatchInput { Header = _ => "partner-acme\n" }));
+        Assert.Equal("s", Rule(m, new MatchInput { Header = _ => "partner-acme" }));
         Assert.Null(Rule(m, new MatchInput { Path = "/api/v2/dump\n" }));
         Assert.Null(Rule(m, new MatchInput { Path = "/api/v2/dump%0A" }));
         Assert.Equal("c", Rule(m, new MatchInput { Path = "/api/v2/dump" }));
