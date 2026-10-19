@@ -317,8 +317,10 @@ public static class Parser
         return sb.ToString();
     }
 
-    /// <summary>A guarded IsMatch: a timeout (catastrophic backtracking on hostile input) is no match, never a throw.</summary>
-    internal static bool Search(Regex rx, string input)
+    /// <summary>A guarded IsMatch: a timeout (catastrophic backtracking on hostile input) never throws. It answers
+    /// <paramref name="onFailure"/>: a deny rule passes true so a failure fails closed like an over-cap value; a skip
+    /// rule and the legacy path list pass false.</summary>
+    internal static bool Search(Regex rx, string input, bool onFailure = false)
     {
         try
         {
@@ -326,7 +328,7 @@ public static class Parser
         }
         catch (RegexMatchTimeoutException)
         {
-            return false;
+            return onFailure;
         }
     }
 
@@ -428,7 +430,7 @@ public static class Parser
                     v = StripControls(v);
                 }
                 // over the cap the regex never runs: a deny rule hits, a skip rule misses (never truncate)
-                return v.Length > MaxMatchInput ? deny : Search(rx, v);
+                return v.Length > MaxMatchInput ? deny : Search(rx, v, deny);
             };
         }
         if (op == "contains")
