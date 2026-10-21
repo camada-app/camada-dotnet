@@ -8,8 +8,8 @@ namespace Camada.Tests;
 
 public class VersionTests
 {
-    // edge-analyst src/freshness.js SDK_RE: anything else is silently dropped from sdk_versions.
-    private static readonly Regex AnalystSdkRe = new("^@?[a-z0-9._-]+(/[a-z0-9._-]+)?/\\d+\\.\\d+\\.\\d+[a-z0-9.-]*$", RegexOptions.IgnoreCase);
+    // edge-analyst src/freshness.js sdkId (SDK_RE, exact-case SDK_NAMES): anything else is dropped.
+    private static readonly Regex AnalystSdkRe = new("^@camada/dotnet/\\d+\\.\\d+\\.\\d+[A-Za-z0-9.-]*$");
 
     [Fact]
     public void AssemblyMetadataMatchesTheLiteral()
