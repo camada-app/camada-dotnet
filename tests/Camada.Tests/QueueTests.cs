@@ -167,15 +167,16 @@ public class QueueTests
     {
         var a = new FakeAnalyst();
         var q = Queue(a, flushS: 60);
+        var hung = new ManualResetEventSlim(false);
         q.Transport = req =>
         {
-            Thread.Sleep(1500);
+            hung.Wait(30_000);   // a POST that outlives the budget by far
             return a.Transport(req);
         };
         q.Push(Row("i", 1));
-        var t0 = Environment.TickCount64;
         q.Drain(budgetS: 0.1);
-        Assert.InRange(Environment.TickCount64 - t0, 0, 1000);   // abandoned, not awaited
+        Assert.Empty(a.Events);   // abandoned, not awaited: Drain returned while the POST still hangs
+        hung.Set();
         q.Stop();
     }
 }

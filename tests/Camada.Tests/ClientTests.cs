@@ -240,11 +240,11 @@ public class ClientTests
         });
         try
         {
-            var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 2.0));
+            var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 30.0));
             Assert.Equal(200, r.Status);
             Assert.Equal(payload, r.Body);
             Assert.Equal("\"z\"", r.Headers["etag"]);
-            await serving.WaitAsync(TimeSpan.FromSeconds(2));
+            await serving.WaitAsync(TimeSpan.FromSeconds(30));
         }
         finally
         {
@@ -271,11 +271,11 @@ public class ClientTests
         });
         try
         {
-            var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 2.0));
+            var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 30.0));
             Assert.Equal(304, r.Status);
             Assert.Equal("30", r.Headers["retry-after"]);
             Assert.Empty(r.Body);
-            await serving.WaitAsync(TimeSpan.FromSeconds(2));
+            await serving.WaitAsync(TimeSpan.FromSeconds(30));
         }
         finally
         {

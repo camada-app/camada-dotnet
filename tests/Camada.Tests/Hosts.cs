@@ -61,8 +61,10 @@ public static class Hosts
         return new CamadaEngine(opts);
     }
 
-    /// <summary>The one polling helper of the suite: spins (5 ms) until `cond` holds or `ms` have passed.</summary>
-    public static void WaitUntil(Func<bool> cond, int ms = 2000)
+    /// <summary>The one polling helper of the suite: spins (5 ms) until `cond` holds or `ms` have passed. The
+    /// default bound is generous on purpose: it returns the moment `cond` holds, and a CPU-starved machine (other
+    /// suites running alongside) can hold a queued poll or flush for seconds.</summary>
+    public static void WaitUntil(Func<bool> cond, int ms = 30_000)
     {
         var end = Environment.TickCount64 + ms;
         while (!cond() && Environment.TickCount64 < end)
@@ -71,12 +73,11 @@ public static class Hosts
         }
     }
 
-    /// <summary>Waits for the boot poll. The bound is generous on purpose: it returns the moment the snapshot
-    /// lands, and a CPU-starved machine (other suites running alongside) can hold the queued poll past 2 s.</summary>
+    /// <summary>Waits for the boot poll.</summary>
     public static void Loaded(CamadaEngine engine)
     {
         Assert.NotNull(engine.Snap);
-        WaitUntil(() => engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason != "cold", ms: 30_000);
+        WaitUntil(() => engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason != "cold");
         Assert.NotEqual("cold", engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason);
     }
 
