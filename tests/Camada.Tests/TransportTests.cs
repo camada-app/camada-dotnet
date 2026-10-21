@@ -27,16 +27,24 @@ public class HttpClientTransportTests
         srv.Start();
         var serving = new Thread(() =>
         {
-            using var conn = srv.AcceptTcpClient();
-            srv.Stop();
-            var stream = conn.GetStream();
-            using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
-            while (!string.IsNullOrEmpty(reader.ReadLine()))
+            try
             {
-                // skip the request head; the canned response doesn't depend on it
+                using var conn = srv.AcceptTcpClient();
+                srv.Stop();
+                var stream = conn.GetStream();
+                using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
+                while (!string.IsNullOrEmpty(reader.ReadLine()))
+                {
+                    // skip the request head; the canned response doesn't depend on it
+                }
+                stream.Write(Encoding.ASCII.GetBytes(head + "Connection: close\r\n\r\n"));
+                stream.Write(body);
             }
-            stream.Write(Encoding.ASCII.GetBytes(head + "Connection: close\r\n\r\n"));
-            stream.Write(body);
+            catch (Exception e) when (e is IOException or SocketException)
+            {
+                // client gave up early; an unhandled throw on this thread would kill the test host. The
+                // test's status/body asserts still fail on a broken exchange.
+            }
         }) { IsBackground = true };
         serving.Start();
         return (((IPEndPoint)srv.LocalEndpoint).Port, serving);
