@@ -3,6 +3,8 @@
 // published -> enforce nothing). Cold = fail open; any error keeps the previous snapshot.
 using System.IO.Compression;
 using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using Camada.Snapshot;
 
 namespace Camada.Tests;
@@ -214,80 +216,61 @@ public class ClientTests
         Assert.True(a.SnapshotRequests.Count >= n + 2);
     }
 
+    /// <summary>Serves one canned HTTP/1.1 response on loopback. Sync sockets on a dedicated thread, not
+    /// HttpListener on Task.Run: a starved thread pool (a loaded machine, the suite's blocked workers) held the
+    /// listener's accept past the client's timeout.</summary>
+    private static (int Port, Thread Serving) ServeOnce(byte[] head, byte[] body)
+    {
+        var srv = new TcpListener(IPAddress.Loopback, 0);
+        srv.Start();
+        var serving = new Thread(() =>
+        {
+            using var conn = srv.AcceptTcpClient();
+            srv.Stop();
+            var stream = conn.GetStream();
+            using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
+            while (!string.IsNullOrEmpty(reader.ReadLine()))
+            {
+                // skip the request head; the canned response doesn't depend on it
+            }
+            stream.Write(head);
+            stream.Write(body);
+        }) { IsBackground = true };
+        serving.Start();
+        return (((IPEndPoint)srv.LocalEndpoint).Port, serving);
+    }
+
     [Fact]
-    public async Task HttpClientTransportGunzipsAndNeverThrows()
+    public void HttpClientTransportGunzipsAndNeverThrows()
     {
         var payload = FakeAnalyst.Frame("""{"version":"z"}""", "BLK"u8.ToArray());
-        using var srv = new HttpListener();
-        var port = FreePort();
-        srv.Prefixes.Add($"http://127.0.0.1:{port}/");
-        srv.Start();
-        var serving = Task.Run(() =>
+        using var ms = new MemoryStream();
+        using (var gz = new GZipStream(ms, CompressionMode.Compress, leaveOpen: true))
         {
-            var ctx = srv.GetContext();
-            using var ms = new MemoryStream();
-            using (var gz = new GZipStream(ms, CompressionMode.Compress, leaveOpen: true))
-            {
-                gz.Write(payload);
-            }
-            var body = ms.ToArray();
-            ctx.Response.StatusCode = 200;
-            ctx.Response.Headers["Content-Encoding"] = "gzip";
-            ctx.Response.Headers["ETag"] = "\"z\"";
-            ctx.Response.ContentLength64 = body.Length;
-            ctx.Response.OutputStream.Write(body);
-            ctx.Response.Close();
-        });
-        try
-        {
-            var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 30.0));
-            Assert.Equal(200, r.Status);
-            Assert.Equal(payload, r.Body);
-            Assert.Equal("\"z\"", r.Headers["etag"]);
-            await serving.WaitAsync(TimeSpan.FromSeconds(30));
+            gz.Write(payload);
         }
-        finally
-        {
-            srv.Stop();
-        }
+        var body = ms.ToArray();
+        var (port, serving) = ServeOnce(Encoding.ASCII.GetBytes(
+            $"HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nETag: \"z\"\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n"), body);
+        var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 30.0));
+        Assert.Equal(200, r.Status);
+        Assert.Equal(payload, r.Body);
+        Assert.Equal("\"z\"", r.Headers["etag"]);
+        Assert.True(serving.Join(TimeSpan.FromSeconds(30)));
         var dead = HttpClientTransport.Send(new TransportRequest("GET", "http://127.0.0.1:1/snapshot", new(), null, 0.2));
         Assert.Equal(0, dead.Status);
     }
 
     [Fact]
-    public async Task HttpClientTransportKeepsA304WithGzipHeaderAndNoBody()
+    public void HttpClientTransportKeepsA304WithGzipHeaderAndNoBody()
     {
-        using var srv = new HttpListener();
-        var port = FreePort();
-        srv.Prefixes.Add($"http://127.0.0.1:{port}/");
-        srv.Start();
-        var serving = Task.Run(() =>
-        {
-            var ctx = srv.GetContext();
-            ctx.Response.StatusCode = 304;
-            ctx.Response.Headers["Content-Encoding"] = "gzip";
-            ctx.Response.Headers["Retry-After"] = "30";
-            ctx.Response.Close();
-        });
-        try
-        {
-            var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 30.0));
-            Assert.Equal(304, r.Status);
-            Assert.Equal("30", r.Headers["retry-after"]);
-            Assert.Empty(r.Body);
-            await serving.WaitAsync(TimeSpan.FromSeconds(30));
-        }
-        finally
-        {
-            srv.Stop();
-        }
-    }
-
-    internal static int FreePort()
-    {
-        using var s = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.InterNetwork, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp);
-        s.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-        return ((IPEndPoint)s.LocalEndPoint!).Port;
+        var (port, serving) = ServeOnce(Encoding.ASCII.GetBytes(
+            "HTTP/1.1 304 Not Modified\r\nContent-Encoding: gzip\r\nRetry-After: 30\r\nConnection: close\r\n\r\n"), []);
+        var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 30.0));
+        Assert.Equal(304, r.Status);
+        Assert.Equal("30", r.Headers["retry-after"]);
+        Assert.Empty(r.Body);
+        Assert.True(serving.Join(TimeSpan.FromSeconds(30)));
     }
 
     [Fact]
