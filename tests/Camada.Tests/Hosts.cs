@@ -61,12 +61,15 @@ public static class Hosts
         return new CamadaEngine(opts);
     }
 
-    /// <summary>The one polling helper of the suite: spins (5 ms) until `cond` holds or `ms` have passed. The
-    /// default bound is generous on purpose: it returns the moment `cond` holds, and a CPU-starved machine (other
-    /// suites running alongside) can hold a queued poll or flush for seconds.</summary>
-    public static void WaitUntil(Func<bool> cond, int ms = 30_000)
+    /// <summary>The suite's bound on anything it waits for. Generous on purpose: every wait returns the moment its
+    /// condition holds, and a CPU-starved machine (other suites running alongside) can hold a queued poll, flush or
+    /// loopback request for seconds.</summary>
+    public const int PatienceMs = 30_000;
+
+    /// <summary>The one polling helper of the suite: spins (5 ms) until `cond` holds or `PatienceMs` have passed.</summary>
+    public static void WaitUntil(Func<bool> cond)
     {
-        var end = Environment.TickCount64 + ms;
+        var end = Environment.TickCount64 + PatienceMs;
         while (!cond() && Environment.TickCount64 < end)
         {
             Thread.Sleep(5);
