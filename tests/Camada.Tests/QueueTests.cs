@@ -147,7 +147,7 @@ public class QueueTests
         var q = Queue(a, maxBatch: 1, flushS: 60);
         q.Transport = req =>
         {
-            gate.Wait(2000);   // the periodic flush is mid-POST when the exit drain starts
+            gate.Wait(Hosts.PatienceMs);   // the periodic flush is mid-POST when the exit drain starts
             return inner(req);
         };
         q.Push(Row("i", 1));
@@ -155,9 +155,9 @@ public class QueueTests
         q.Push(Row("i", 2));
         q.Flush();   // the request-path flush yields to the one in flight
         Assert.Empty(a.Events);
-        var t = Task.Run(() => q.Drain(budgetS: 2));
+        var t = Task.Run(() => q.Drain(budgetS: Hosts.PatienceMs / 1000.0));
         gate.Set();
-        await t.WaitAsync(TimeSpan.FromSeconds(2));
+        await t.WaitAsync(TimeSpan.FromMilliseconds(Hosts.PatienceMs));
         Assert.Equal("1|2", Flat(a));
         q.Stop();
     }
@@ -170,7 +170,7 @@ public class QueueTests
         var hung = new ManualResetEventSlim(false);
         q.Transport = req =>
         {
-            hung.Wait(30_000);   // a POST that outlives the budget by far
+            hung.Wait(Hosts.PatienceMs);   // a POST that outlives the budget by far
             return a.Transport(req);
         };
         q.Push(Row("i", 1));
