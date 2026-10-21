@@ -71,10 +71,12 @@ public static class Hosts
         }
     }
 
+    /// <summary>Waits for the boot poll. The bound is generous on purpose: it returns the moment the snapshot
+    /// lands, and a CPU-starved machine (other suites running alongside) can hold the queued poll past 2 s.</summary>
     public static void Loaded(CamadaEngine engine)
     {
         Assert.NotNull(engine.Snap);
-        WaitUntil(() => engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason != "cold");
+        WaitUntil(() => engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason != "cold", ms: 30_000);
         Assert.NotEqual("cold", engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason);
     }
 
