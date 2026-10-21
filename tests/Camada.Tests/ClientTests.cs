@@ -219,7 +219,7 @@ public class ClientTests
     /// <summary>Serves one canned HTTP/1.1 response on loopback. Sync sockets on a dedicated thread, not
     /// HttpListener on Task.Run: a starved thread pool (a loaded machine, the suite's blocked workers) held the
     /// listener's accept past the client's timeout.</summary>
-    private static (int Port, Thread Serving) ServeOnce(byte[] head, byte[] body)
+    private static (int Port, Thread Serving) ServeOnce(string head, byte[] body)
     {
         var srv = new TcpListener(IPAddress.Loopback, 0);
         srv.Start();
@@ -233,7 +233,7 @@ public class ClientTests
             {
                 // skip the request head; the canned response doesn't depend on it
             }
-            stream.Write(head);
+            stream.Write(Encoding.ASCII.GetBytes(head + "Connection: close\r\n\r\n"));
             stream.Write(body);
         }) { IsBackground = true };
         serving.Start();
@@ -250,13 +250,13 @@ public class ClientTests
             gz.Write(payload);
         }
         var body = ms.ToArray();
-        var (port, serving) = ServeOnce(Encoding.ASCII.GetBytes(
-            $"HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nETag: \"z\"\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n"), body);
-        var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 30.0));
+        var (port, serving) = ServeOnce(
+            $"HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nETag: \"z\"\r\nContent-Length: {body.Length}\r\n", body);
+        var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, Hosts.PatienceMs / 1000.0));
         Assert.Equal(200, r.Status);
         Assert.Equal(payload, r.Body);
         Assert.Equal("\"z\"", r.Headers["etag"]);
-        Assert.True(serving.Join(TimeSpan.FromSeconds(30)));
+        Assert.True(serving.Join(Hosts.PatienceMs));
         var dead = HttpClientTransport.Send(new TransportRequest("GET", "http://127.0.0.1:1/snapshot", new(), null, 0.2));
         Assert.Equal(0, dead.Status);
     }
@@ -264,13 +264,13 @@ public class ClientTests
     [Fact]
     public void HttpClientTransportKeepsA304WithGzipHeaderAndNoBody()
     {
-        var (port, serving) = ServeOnce(Encoding.ASCII.GetBytes(
-            "HTTP/1.1 304 Not Modified\r\nContent-Encoding: gzip\r\nRetry-After: 30\r\nConnection: close\r\n\r\n"), []);
-        var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, 30.0));
+        var (port, serving) = ServeOnce(
+            "HTTP/1.1 304 Not Modified\r\nContent-Encoding: gzip\r\nRetry-After: 30\r\n", []);
+        var r = HttpClientTransport.Send(new TransportRequest("GET", $"http://127.0.0.1:{port}/snapshot", new() { ["accept-encoding"] = "gzip" }, null, Hosts.PatienceMs / 1000.0));
         Assert.Equal(304, r.Status);
         Assert.Equal("30", r.Headers["retry-after"]);
         Assert.Empty(r.Body);
-        Assert.True(serving.Join(TimeSpan.FromSeconds(30)));
+        Assert.True(serving.Join(Hosts.PatienceMs));
     }
 
     [Fact]
