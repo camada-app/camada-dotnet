@@ -8,7 +8,7 @@ namespace Camada.Tests;
 
 public class VersionTests
 {
-    // edge-analyst src/freshness.js sdkId: SDK_RE with a name from SDK_NAMES (exact case); anything else is silently dropped from sdk_versions.
+    // edge-analyst src/freshness.js sdkId (SDK_RE, exact-case SDK_NAMES): anything else is dropped.
     private static readonly Regex AnalystSdkRe = new("^@camada/dotnet/\\d+\\.\\d+\\.\\d+[A-Za-z0-9.-]*$");
 
     [Fact]
