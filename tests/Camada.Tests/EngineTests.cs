@@ -663,7 +663,7 @@ public class FailOpenTests
         try
         {
             Assert.NotNull(engine.Snap);
-            Hosts.WaitUntil(() => engine.Snap!.Verdict(new Snapshot.MatchInput { Ip = "0.0.0.0" }).Reason != "cold", ms: 5000);
+            Hosts.WaitUntil(() => engine.Snap!.Verdict(new Snapshot.MatchInput { Ip = "0.0.0.0" }).Reason != "cold");
             Assert.True(engine.Snap!.Verdict(new Snapshot.MatchInput { Ip = FakeAnalyst.BlockedIp }).Block);
         }
         finally
