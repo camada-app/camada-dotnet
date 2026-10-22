@@ -143,15 +143,17 @@ public class QueueTests
     {
         var a = new FakeAnalyst();
         var gate = new ManualResetEventSlim(false);
+        var entered = new ManualResetEventSlim(false);
         Transport inner = a.Transport;
         var q = Queue(a, maxBatch: 1, flushS: 60);
         q.Transport = req =>
         {
+            entered.Set();   // batch [1] is already dequeued once the POST starts
             gate.Wait(Hosts.PatienceMs);   // the periodic flush is mid-POST when the exit drain starts
             return inner(req);
         };
         q.Push(Row("i", 1));
-        Hosts.WaitUntil(() => q.InFlight);
+        Assert.True(entered.Wait(Hosts.PatienceMs));   // the POST itself is in flight, not just the semaphore taken
         q.Push(Row("i", 2));
         q.Flush();   // the request-path flush yields to the one in flight
         Assert.Empty(a.Events);
