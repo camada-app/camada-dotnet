@@ -27,7 +27,7 @@ public class GateRaceTests
                 }
                 Interlocked.Increment(ref polls);
                 inFlight.Set();
-                releasePoll.Wait(5000);
+                releasePoll.Wait(Hosts.PatienceMs);
                 return new TransportResponse(503, new() { ["retry-after"] = "30" }, Array.Empty<byte>());
             });
         c.Ticks = () =>
@@ -35,7 +35,7 @@ public class GateRaceTests
             if (Thread.CurrentThread == threadA && !aInsideDue.IsSet)
             {
                 aInsideDue.Set();      // A has read _notBefore (still 0) and is inside Stale
-                releaseA.Wait(5000);
+                releaseA.Wait(Hosts.PatienceMs);
             }
             return Interlocked.Read(ref now);
         };
@@ -43,16 +43,16 @@ public class GateRaceTests
         Interlocked.Exchange(ref now, 1_028_000);      // stale, gate open
         fail = true;
         c.EnsureFresh();                               // poll B starts (503 ra 30)
-        Assert.True(inFlight.Wait(5000));
+        Assert.True(inFlight.Wait(Hosts.PatienceMs));
         threadA = new Thread(() => c.EnsureFresh());   // a request thread kicks while B is in flight
         threadA.Start();
-        Assert.True(aInsideDue.Wait(5000));
+        Assert.True(aInsideDue.Wait(Hosts.PatienceMs));
         releasePoll.Set();                             // B finishes: writes _notBefore, releases the slot
-        SpinWait.SpinUntil(() => c.Due == false, 5000);
+        SpinWait.SpinUntil(() => c.Due == false, Hosts.PatienceMs);
         // c.Due flips once the slot is released; wait (bounded) until a Wait(0) would really succeed
-        Assert.True(SpinWait.SpinUntil(() => c.SlotFree, 5000));
+        Assert.True(SpinWait.SpinUntil(() => c.SlotFree, Hosts.PatienceMs));
         releaseA.Set();                                // A resumes: Due already evaluated as true -> Wait(0) succeeds
-        threadA.Join(5000);
+        threadA.Join(Hosts.PatienceMs);
         Thread.Sleep(200);
         Assert.Equal(1, Volatile.Read(ref polls));     // contract: one poll per gate
     }
