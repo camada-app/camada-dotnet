@@ -131,7 +131,7 @@ public class QueueTests
         var a = new FakeAnalyst();
         var q = Queue(a, maxBatch: 1, flushS: 60);   // each push wakes the loop; no interval tick races Stop()
         q.Push(Row("i", 1));
-        Hosts.WaitUntil(() => a.Events.Count == 1);   // the loop flushed the full batch
+        Hosts.WaitUntil(() => a.Events.Count == 1 && !q.InFlight);   // that flush is done, not about to dequeue again
         q.Stop();
         q.Push(Row("i", 2));
         Thread.Sleep(50);
