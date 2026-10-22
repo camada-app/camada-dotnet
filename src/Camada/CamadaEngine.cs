@@ -362,6 +362,7 @@ public sealed class CamadaEngine
         row["sig"] = 1;   // spread first: ip and tap are the server's word
         row["ip"] = ip;
         row["tap"] = Tap;
+        row["rts"] = NowMs();   // the relay's clock, not the browser's
         Queue!.Push(row);
         return answer;
     }
