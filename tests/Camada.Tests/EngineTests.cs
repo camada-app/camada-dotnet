@@ -330,6 +330,33 @@ public class BeaconEndpointTests
     }
 
     [Fact]
+    public void StripsSdkAttestedKeysAVisitorPutsInTheBeaconBody()
+    {
+        var a = new FakeAnalyst();
+        EngineFx.Hops1(a);
+        using var h = new Host(a);
+        var keys = new[] { "tlsx", "ja4", "asn", "cc", "sid", "ns", "st", "dur", "rt", "blk", "rl", "wrn", "chs", "ch", "et", "uid" };
+        var forged = new Dictionary<string, object> { ["rid"] = "r-1", ["tz"] = "UTC" };
+        foreach (var k in keys)
+        {
+            forged[k] = "forged";
+        }
+        var body = JsonSerializer.SerializeToUtf8Bytes(forged);
+        var fp = h.Call("POST", "/_cam/fp", new[] { ("x-forwarded-for", "198.18.0.5"), ("content-type", "application/json") }, body);
+        Assert.Equal(204, fp.Status);
+        var row = Assert.Single(h.Events());
+        Assert.Equal(1, row.I("sig"));
+        Assert.Equal("r-1", row.S("rid"));
+        Assert.Equal("UTC", row.S("tz"));
+        Assert.Equal("198.18.0.5", row.S("ip"));
+        Assert.Equal("sdk-dotnet", row.S("tap"));
+        foreach (var k in keys)
+        {
+            Assert.False(row.ContainsKey(k), k);
+        }
+    }
+
+    [Fact]
     public void DropsJunkBodiesInsteadOfShippingThem()
     {
         using var h = new Host(new FakeAnalyst());
