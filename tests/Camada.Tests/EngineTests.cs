@@ -667,6 +667,33 @@ public class ChallengeFlowTests
             Assert.False(ev.ContainsKey("blk"));
         }
     }
+
+    [Fact]
+    public void ServeChallengeOnDemandSignalsAnUnsignalledNonHtmlRequest()
+    {
+        var a = V4();
+        a.Config["sample"] = 0; // the signalled event ships regardless
+        Host? h = null;
+        h = new Host(a, handler: async ctx =>
+        {
+            ctx.Response.Headers.CacheControl = "public";
+            if (h!.Engine.ServeChallenge(EngineFx.Ctx(ctx)) != null)
+            {
+                return;
+            }
+            await ctx.Response.Body.WriteAsync("api json"u8.ToArray());
+        });
+        using (h)
+        {
+            var r = h.Call("GET", "/challenge-me", JsonFetch);
+            Assert.Equal(200, r.Status);
+            Assert.Equal("api json", r.Text);
+            Assert.Equal("1", r.Header("x-camada-challenge"));
+            Assert.Equal(new[] { "no-store" }, r.HeadersNamed("cache-control"));
+            var ev = Assert.Single(h.Events());
+            Assert.Equal(1, ev.I("chs"));
+        }
+    }
 }
 
 public class FailOpenTests
