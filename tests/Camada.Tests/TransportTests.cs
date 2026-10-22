@@ -75,4 +75,57 @@ public class HttpClientTransportTests
         Assert.Empty(r.Body);
         Assert.True(serving.Join(Hosts.PatienceMs));
     }
+
+    [Fact]
+    public void HttpClientTransportReturnsByTheDeadlineWhenTheProxyLookupBlocks()
+    {
+        // Stands in for macOS's system-proxy lookup, which blocks inside the handler and ignores the token.
+        var proxy = new BlockingProxy();
+        var spy = new BlockingProxy();
+        using var client = HttpClientTransport.Create(proxy);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var r = HttpClientTransport.Send(client, new TransportRequest("GET", "http://127.0.0.1:1/snapshot", new(), null, 0.5));
+            sw.Stop();
+            Assert.Equal(0, r.Status);
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2), $"took {sw.Elapsed}");
+            Assert.True(proxy.Entered.Wait(Hosts.PatienceMs));   // the send really was stuck in the lookup
+
+            // Once MaxStuck sends are parked on the hung lookup, the next one fails fast without a thread.
+            for (var i = 1; i < HttpClientTransport.MaxStuck; i++)
+            {
+                HttpClientTransport.Send(client, new TransportRequest("GET", "http://127.0.0.1:1/snapshot", new(), null, 0.2));
+            }
+            using var other = HttpClientTransport.Create(spy);
+            sw.Restart();
+            Assert.Equal(0, HttpClientTransport.Send(other, new TransportRequest("GET", "http://127.0.0.1:1/snapshot", new(), null, 2.0)).Status);
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(1), $"took {sw.Elapsed}");
+            Assert.False(spy.Entered.IsSet);
+        }
+        finally
+        {
+            proxy.Release.Set();
+            spy.Release.Set();
+            Hosts.WaitUntil(() => HttpClientTransport.Stuck == 0);   // released, the parked sends drain
+        }
+        Assert.Equal(0, HttpClientTransport.Stuck);
+    }
+
+    private sealed class BlockingProxy : IWebProxy
+    {
+        public readonly ManualResetEventSlim Entered = new();
+        public readonly ManualResetEventSlim Release = new();
+
+        public ICredentials? Credentials { get; set; }
+
+        public Uri? GetProxy(Uri destination)
+        {
+            Entered.Set();
+            Release.Wait(Hosts.PatienceMs);
+            return null;
+        }
+
+        public bool IsBypassed(Uri host) => false;
+    }
 }
