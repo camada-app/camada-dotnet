@@ -357,6 +357,20 @@ public class BeaconEndpointTests
     }
 
     [Fact]
+    public void StampsTheRelayClockOnTheBeaconRowOverAForgedRts()
+    {
+        var a = new FakeAnalyst();
+        EngineFx.Hops1(a);
+        using var h = new Host(a);
+        var before = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var fp = h.Call("POST", "/_cam/fp", new[] { ("x-forwarded-for", "198.18.0.5"), ("content-type", "application/json") }, Encoding.UTF8.GetBytes("""{"rid":"r-1","rts":1}"""));
+        var after = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        Assert.Equal(204, fp.Status);
+        var rts = Assert.Single(h.Events()).I("rts");
+        Assert.InRange(rts!.Value, before, after);
+    }
+
+    [Fact]
     public void DropsJunkBodiesInsteadOfShippingThem()
     {
         using var h = new Host(new FakeAnalyst());
