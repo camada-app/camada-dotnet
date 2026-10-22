@@ -8,13 +8,6 @@ using Camada.Snapshot;
 
 namespace Camada.Tests;
 
-/// <summary>Tests that need an unstarved thread pool or touch process-global state; xUnit runs this collection alone.</summary>
-[CollectionDefinition(Name, DisableParallelization = true)]
-public class SerialCollection
-{
-    public const string Name = "serial";
-}
-
 [Collection(SerialCollection.Name)]
 public class HttpClientTransportTests
 {
