@@ -225,6 +225,7 @@ public sealed class CamadaEngine
         // A challenge needs a resolved client IP: the nonce and the _cch cookie are bound to it,
         // so without one a single solve would mint a cookie every unidentified client could
         // present. No ip -> no challenge (fail open), the same stance ip rules take.
+        var signalled = false;
         if (ChallengeOn && !string.IsNullOrEmpty(ip))
         {
             // The verify endpoint answers first: a challenged client must be able to reach it.
@@ -234,7 +235,12 @@ public sealed class CamadaEngine
             }
             if (v.Challenge && !ChallengePassed(req, ip))
             {
-                return ServeChallengeAnswer(req, ip, SidOf(req));
+                // A page load gets the challenge; anything else (fetch/XHR/API) passes to the app, flagged.
+                if (Format.WantsHtml(req.Header("accept"), req.Header("sec-fetch-dest")))
+                {
+                    return ServeChallengeAnswer(req, ip, SidOf(req));
+                }
+                signalled = true;
             }
         }
 
@@ -264,7 +270,7 @@ public sealed class CamadaEngine
                 setCookie += "; Secure";
             }
         }
-        var ctx = new CamadaContext(rid, sid!, ip, req, this);
+        var ctx = new CamadaContext(rid, sid!, ip, req, this) { Signalled = signalled };
 
         var cfg = Snap.Config;
         var excluded = cfg != null && cfg.Exclude.Any(x => req.Path.StartsWith(x, StringComparison.Ordinal));
@@ -278,7 +284,13 @@ public sealed class CamadaEngine
             {
                 // ServeChallenge() may have answered from inside the app, and it already shipped
                 // the `blk: "challenge"` row — one request, one event.
-                if (ctx.Challenged || excluded || !sampled)
+                if (ctx.Challenged)
+                {
+                    return;
+                }
+                // A signalled request ships regardless of sample and exclude, like the 403 row it replaces.
+                var signalled = ctx.Signalled;
+                if (!signalled && (excluded || !sampled))
                 {
                     return;
                 }
@@ -293,6 +305,10 @@ public sealed class CamadaEngine
                 if (warnRule != null)
                 {
                     ev["wrn"] = warnRule;   // §D3: the warn rule that let this request through
+                }
+                if (signalled)
+                {
+                    ev["chs"] = 1;   // challenge signalled (camada-all-82ar)
                 }
                 queue.Push(ev);
             }
@@ -369,24 +385,12 @@ public sealed class CamadaEngine
         return new Answer(403, headers, Encoding.UTF8.GetBytes(html));
     }
 
-    /// <summary>403 + the proof-of-work page (HTML navigations) or 403 JSON (everything else), plus the
+    /// <summary>403 + the proof-of-work page (HTML navigations only), plus the
     /// `blk: "challenge"` event — a served challenge is reported like a block (contract §D2).</summary>
     private Answer ServeChallengeAnswer(Req req, string ip, string? sid)
     {
         var to = Format.SafeReturnTo(req.Path + req.Query);
-        Answer answer;
-        if (Format.WantsHtml(req.Header("accept"), req.Header("sec-fetch-dest")))
-        {
-            answer = PageAnswer(ip, to);
-        }
-        else
-        {
-            var headers = new List<KeyValuePair<string, string>>
-            {
-                new("content-type", "application/json"), new("cache-control", "no-store"), new("x-camada-challenge", "1"),
-            };
-            answer = new Answer(403, headers, "{\"error\":\"challenge_required\"}"u8.ToArray());
-        }
+        var answer = PageAnswer(ip, to);
         try
         {
             var ev = Event(req, Guid.NewGuid().ToString(), sid, false, ip);
@@ -427,7 +431,8 @@ public sealed class CamadaEngine
 
     /// <summary>Serve the challenge for this request on demand — for a route the app wants to gate
     /// itself. Null when the client already holds a valid _cch (render your own page), or when
-    /// the client cannot be identified (fail open).</summary>
+    /// the client cannot be identified (fail open). A non-HTML request is never challenged: it is
+    /// signalled (header and `chs: 1` event) and null is returned, so the app answers.</summary>
     public Answer? ServeChallenge(CamadaContext? ctx)
     {
         try
@@ -439,6 +444,11 @@ public sealed class CamadaEngine
             var ip = ctx.Ip;
             if (string.IsNullOrEmpty(ip) || ChallengePassed(ctx.Req, ip))
             {
+                return null;
+            }
+            if (!Format.WantsHtml(ctx.Req.Header("accept"), ctx.Req.Header("sec-fetch-dest")))
+            {
+                ctx.Signalled = true;
                 return null;
             }
             ctx.Challenged = true;
