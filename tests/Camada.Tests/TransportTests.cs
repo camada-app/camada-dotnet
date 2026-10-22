@@ -4,7 +4,6 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using Camada.Snapshot;
 
 namespace Camada.Tests;
 
@@ -38,7 +37,8 @@ public class HttpClientTransportTests
                 // client gave up early; an unhandled throw on this thread would kill the test host. The
                 // test's status/body asserts still fail on a broken exchange.
             }
-        }) { IsBackground = true };
+        })
+        { IsBackground = true };
         serving.Start();
         return (((IPEndPoint)srv.LocalEndpoint).Port, serving);
     }
