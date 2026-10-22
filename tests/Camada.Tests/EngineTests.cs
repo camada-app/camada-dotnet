@@ -161,9 +161,12 @@ public class CaptureTests
     [Fact]
     public void StampsTsAtTheRequestStartSoTsPlusDurIsTheResponseEnd()
     {
+        long handlerStart = 0, handlerEnd = 0;
         using var h = new Host(new FakeAnalyst(), handler: async ctx =>
         {
+            handlerStart = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             await Task.Delay(200);
+            handlerEnd = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             ctx.Response.StatusCode = 200;
         });
         var start = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -172,8 +175,11 @@ public class CaptureTests
         var ev = Assert.Single(h.Events());
         long ts = ev.I("ts")!.Value, dur = ev.I("dur")!.Value;
         Assert.True(dur >= 190, $"dur {dur}"); // TickCount64 ticks at ~15 ms on some hosts
-        Assert.True(ts >= start && ts < start + 100, $"ts {ts} start {start}"); // not one dur later
-        Assert.True(Math.Abs(ts + dur - end) < 100, $"ts+dur {ts + dur} end {end}");
+        // Ordering, not wall-clock windows: ts is stamped before the handler runs (not one dur later), and
+        // ts + dur lands in [handlerEnd, end]. Slop covers dur's TickCount64 granularity (~15 ms on some hosts).
+        const int Slop = 20;
+        Assert.True(ts >= start && ts <= handlerStart, $"ts {ts} start {start} handlerStart {handlerStart}");
+        Assert.True(ts + dur >= handlerEnd - Slop && ts + dur <= end + Slop, $"ts+dur {ts + dur} handlerEnd {handlerEnd} end {end}");
     }
 
     [Fact]
@@ -663,7 +669,7 @@ public class FailOpenTests
         try
         {
             Assert.NotNull(engine.Snap);
-            Hosts.WaitUntil(() => engine.Snap!.Verdict(new Snapshot.MatchInput { Ip = "0.0.0.0" }).Reason != "cold", ms: 5000);
+            Hosts.WaitUntil(() => engine.Snap!.Verdict(new Snapshot.MatchInput { Ip = "0.0.0.0" }).Reason != "cold");
             Assert.True(engine.Snap!.Verdict(new Snapshot.MatchInput { Ip = FakeAnalyst.BlockedIp }).Block);
         }
         finally

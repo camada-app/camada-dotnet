@@ -5,6 +5,7 @@ using Camada.Snapshot;
 
 namespace Camada.Tests;
 
+[Collection(SerialCollection.Name)] // swaps the process-global Guarded.Sink
 public class BackoffTests
 {
     private static readonly JsonElement Fx = Fixtures.ReadJson("poll/backoff.json");
