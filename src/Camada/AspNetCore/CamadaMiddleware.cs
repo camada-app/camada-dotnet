@@ -14,6 +14,8 @@ namespace Camada.AspNetCore;
 public sealed class CamadaMiddleware
 {
     public const string ItemKey = "camada";
+    // CDNs read their own cache header ahead of cache-control: a signalled response sets all of these no-store.
+    internal static readonly string[] NoStoreHeaders = { "cache-control", "cdn-cache-control", "surrogate-control", "cloudflare-cdn-cache-control", "vercel-cdn-cache-control", "netlify-cdn-cache-control" };
 
     private readonly RequestDelegate _next;
     private readonly IServiceProvider? _services;
@@ -211,7 +213,10 @@ public sealed class CamadaMiddleware
                 }
                 if (p.Ctx is { Signalled: true })   // read now: ServeChallenge() may have flagged it from inside the app
                 {
-                    ctx.Response.Headers.CacheControl = "no-store";   // per client: replaces whatever the app set
+                    foreach (var n in NoStoreHeaders)
+                    {
+                        ctx.Response.Headers[n] = "no-store";   // per client: replaces whatever the app set
+                    }
                     ctx.Response.Headers["x-camada-challenge"] = "1";
                 }
                 if (p.SetCookie != null)

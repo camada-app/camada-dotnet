@@ -523,6 +523,37 @@ public class ChallengeFlowTests
     }
 
     [Fact]
+    public void ASignalledResponseOverridesTheAppsCdnCacheHeaders()
+    {
+        using var h = new Host(V4(), handler: async ctx =>
+        {
+            ctx.Response.Headers["CDN-Cache-Control"] = "public, max-age=60";
+            ctx.Response.Headers["Surrogate-Control"] = "max-age=60";
+            ctx.Response.Headers.CacheControl = "public";
+            await ctx.Response.Body.WriteAsync("app body"u8.ToArray());
+        });
+        var r = h.Call("GET", "/api", JsonFetch, peer: FakeAnalyst.ChallengedIp);
+        Assert.Equal("1", r.Header("x-camada-challenge"));
+        foreach (var n in Camada.AspNetCore.CamadaMiddleware.NoStoreHeaders)
+        {
+            Assert.Equal(new[] { "no-store" }, r.HeadersNamed(n));
+        }
+    }
+
+    [Fact]
+    public void AnUnsignalledResponseKeepsTheAppsCdnCacheHeaders()
+    {
+        using var h = new Host(V4(), handler: async ctx =>
+        {
+            ctx.Response.Headers["CDN-Cache-Control"] = "public, max-age=60";
+            await ctx.Response.Body.WriteAsync("app body"u8.ToArray());
+        });
+        var r = h.Call("GET", "/api", JsonFetch);
+        Assert.Null(r.Header("x-camada-challenge"));
+        Assert.Equal(new[] { "public, max-age=60" }, r.HeadersNamed("cdn-cache-control"));
+    }
+
+    [Fact]
     public void ASignalledEventShipsEvenWhenExcludedOrSampledOut()
     {
         var a = V4();
