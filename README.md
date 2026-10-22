@@ -119,8 +119,8 @@ Outside the generic host (a bare `IApplicationBuilder`), `UseCamada()` alone fal
    A block answers `403 Forbidden` with `x-block-reason`, `x-block-version` and, when a rule
    decided, `x-block-rule`; its event ships with `blk` (and `rl`). A `warn` rule passes and stamps
    `wrn`; a `skip` rule passes with nothing stamped. Cold (no snapshot yet) passes: fail open.
-4. Challenge: a `challenge` verdict gets the self-contained proof-of-work page (or 403 JSON for a
-   non-HTML request). The page sends its own `Content-Security-Policy`, which allows only its
+4. Challenge: a `challenge` verdict gets the self-contained proof-of-work page (a non-HTML
+   request passes to the app with `x-camada-challenge: 1`, `cache-control: no-store` and a `chs: 1` event). The page sends its own `Content-Security-Policy`, which allows only its
    inline script and style by hash, in place of any CSP or CSP-Report-Only the app set earlier on
    the response (or sets later from `Response.OnStarting` in a middleware after `UseCamada()`, as
    `CamadaServeChallenge()` serves it), so a strict app-wide policy cannot block the solver; `POST /__camada/challenge` verifies the solution, sets `_cch` (bound to the
@@ -218,7 +218,7 @@ Two anchors read wider than in JS: `$` also matches before a final `\n`, and `.`
   batch.
 - Header middleware registered **before** `UseCamada()` that sets `Cache-Control` or
   `Content-Security-Policy` from `Response.OnStarting` wins on camada's own answers (the block
-  `403` and the challenge page or `403` JSON). Its callback was registered first, the server runs
+  `403` and the challenge page). Its callback was registered first, the server runs
   `OnStarting` callbacks in reverse order, so it runs after camada wrote the answer and overwrites
   the answer's `cache-control: no-store` and the challenge page's own CSP: a shared cache may keep
   a block, and a strict policy blocks the solver so a challenged visitor cannot pass. Headers set

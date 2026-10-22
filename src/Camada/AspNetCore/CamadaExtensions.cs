@@ -59,8 +59,9 @@ public static class CamadaExtensions
         EngineFor(ctx, c).Track(c, ev, user);
     }
 
-    /// <summary>The proof-of-work page (or 403 JSON) to return from a route you gate yourself; null once
-    /// the browser holds a valid _cch, or when the client cannot be identified (fail open).</summary>
+    /// <summary>The proof-of-work page to return from a route you gate yourself; null once the browser holds a
+    /// valid _cch, when the client cannot be identified (fail open), or when the request is not a page
+    /// load (it is signalled instead: x-camada-challenge, no-store, and a `chs: 1` event).</summary>
     public static IResult? CamadaServeChallenge(this HttpContext ctx)
     {
         var c = ContextOf(ctx);

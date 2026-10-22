@@ -209,6 +209,11 @@ public sealed class CamadaMiddleware
                 {
                     ctx.Response.Headers["x-rid"] = p.Rid;
                 }
+                if (p.Ctx is { Signalled: true })   // read now: ServeChallenge() may have flagged it from inside the app
+                {
+                    ctx.Response.Headers.CacheControl = "no-store";   // per client: replaces whatever the app set
+                    ctx.Response.Headers["x-camada-challenge"] = "1";
+                }
                 if (p.SetCookie != null)
                 {
                     ctx.Response.Headers.Append("Set-Cookie", p.SetCookie);
