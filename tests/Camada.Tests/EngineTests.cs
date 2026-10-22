@@ -465,16 +465,60 @@ public class ChallengeFlowTests
         Assert.Equal("/account", ev.S("p"));
     }
 
+    private static readonly (string, string)[] JsonFetch = { ("accept", "application/json") };
+
+    private static Func<HttpContext, Task> AppCaching() => async ctx =>
+    {
+        ctx.Response.Headers.CacheControl = "public, max-age=600";
+        await ctx.Response.Body.WriteAsync("app body"u8.ToArray());
+    };
+
     [Fact]
-    public void AnswersJsonForANonHtmlRequest()
+    public void SignalsANonHtmlRequestUnderAChallengeAndPassesItToTheApp()
+    {
+        using var h = new Host(V4(), handler: AppCaching());
+        var r = h.Call("GET", "/api", JsonFetch, peer: FakeAnalyst.ChallengedIp);
+        Assert.Equal(200, r.Status);
+        Assert.Equal("app body", r.Text);
+        Assert.Single(h.Seen);
+        Assert.Equal("1", r.Header("x-camada-challenge"));
+        Assert.Equal(new[] { "no-store" }, r.HeadersNamed("cache-control"));
+        Assert.NotNull(r.Header("x-rid"));
+        var ev = Assert.Single(h.Events());
+        Assert.Equal(1, ev.I("chs"));
+        Assert.Equal(200, ev.I("st"));
+        Assert.True(ev.ContainsKey("dur"));
+        Assert.False(ev.ContainsKey("blk"));
+        // a fetch that asks for text/html is still not a page load
+        var r2 = h.Call("GET", "/api", new[] { ("accept", "text/html"), ("sec-fetch-dest", "empty") }, peer: FakeAnalyst.ChallengedIp);
+        Assert.Equal(200, r2.Status);
+        Assert.Equal("1", r2.Header("x-camada-challenge"));
+    }
+
+    [Fact]
+    public void ASignalledEventShipsEvenWhenExcludedOrSampledOut()
+    {
+        var a = V4();
+        a.Config["exclude"] = new[] { "/api" };
+        a.Config["sample"] = 0;
+        using var h = new Host(a);
+        var r = h.Call("GET", "/api/x", JsonFetch, peer: FakeAnalyst.ChallengedIp);
+        Assert.Equal(200, r.Status);
+        Assert.Equal("1", r.Header("x-camada-challenge"));
+        var ev = Assert.Single(h.Events());
+        Assert.Equal(1, ev.I("chs"));
+        Assert.Equal(200, ev.I("st"));
+    }
+
+    [Fact]
+    public void AValidCchMeansNoSignal()
     {
         using var h = new Host(V4());
-        var r = h.Call("GET", "/api", new[] { ("accept", "application/json") }, peer: FakeAnalyst.ChallengedIp);
-        Assert.Equal(403, r.Status);
-        Assert.Equal("application/json", r.Header("content-type"));
-        Assert.Equal("challenge_required", JsonDocument.Parse(r.Text).RootElement.GetProperty("error").GetString());
-        var r2 = h.Call("GET", "/api", new[] { ("accept", "text/html"), ("sec-fetch-dest", "empty") }, peer: FakeAnalyst.ChallengedIp);
-        Assert.Equal("application/json", r2.Header("content-type"));
+        var cch = h.Engine.Kit!.Issue(FakeAnalyst.ChallengedIp, h.Engine.NowMs());
+        var r = h.Call("GET", "/api", JsonFetch.Append(("cookie", $"_cch={cch}")).ToArray(), peer: FakeAnalyst.ChallengedIp);
+        Assert.Equal(200, r.Status);
+        Assert.Null(r.Header("x-camada-challenge"));
+        Assert.DoesNotContain(h.Events(), e => e.ContainsKey("chs"));
     }
 
     [Fact]
@@ -594,6 +638,60 @@ public class ChallengeFlowTests
             var ok = h.Call("POST", "/__camada/challenge", body: Encoding.UTF8.GetBytes($"nonce={nonce}&solution={Solver.Solve(nonce)}&to=%2Fchallenge-me"));
             var cookie = (ok.Header("set-cookie") ?? "").Split(';')[0];
             Assert.Equal("secret page", h.Call("GET", "/challenge-me", EngineFx.Html.Append(("cookie", cookie)).ToArray()).Text);
+        }
+    }
+
+    [Fact]
+    public void ServeChallengeOnDemandSignalsANonHtmlRequest()
+    {
+        Host? h = null;
+        h = new Host(V4(), handler: async ctx =>
+        {
+            ctx.Response.Headers.CacheControl = "public";
+            if (h!.Engine.ServeChallenge(EngineFx.Ctx(ctx)) != null)
+            {
+                return;
+            }
+            await ctx.Response.Body.WriteAsync("api json"u8.ToArray());
+        });
+        using (h)
+        {
+            var r = h.Call("GET", "/challenge-me", JsonFetch, peer: FakeAnalyst.ChallengedIp);
+            Assert.Equal(200, r.Status);
+            Assert.Equal("api json", r.Text);
+            Assert.Equal("1", r.Header("x-camada-challenge"));
+            Assert.Equal(new[] { "no-store" }, r.HeadersNamed("cache-control"));
+            var ev = Assert.Single(h.Events());
+            Assert.Equal(1, ev.I("chs"));
+            Assert.Equal(200, ev.I("st"));
+            Assert.False(ev.ContainsKey("blk"));
+        }
+    }
+
+    [Fact]
+    public void ServeChallengeOnDemandSignalsAnUnsignalledNonHtmlRequest()
+    {
+        var a = V4();
+        a.Config["sample"] = 0; // the signalled event ships regardless
+        Host? h = null;
+        h = new Host(a, handler: async ctx =>
+        {
+            ctx.Response.Headers.CacheControl = "public";
+            if (h!.Engine.ServeChallenge(EngineFx.Ctx(ctx)) != null)
+            {
+                return;
+            }
+            await ctx.Response.Body.WriteAsync("api json"u8.ToArray());
+        });
+        using (h)
+        {
+            var r = h.Call("GET", "/challenge-me", JsonFetch);
+            Assert.Equal(200, r.Status);
+            Assert.Equal("api json", r.Text);
+            Assert.Equal("1", r.Header("x-camada-challenge"));
+            Assert.Equal(new[] { "no-store" }, r.HeadersNamed("cache-control"));
+            var ev = Assert.Single(h.Events());
+            Assert.Equal(1, ev.I("chs"));
         }
     }
 }

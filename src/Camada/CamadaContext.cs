@@ -18,5 +18,7 @@ public sealed class CamadaContext
     public string? Ip { get; }
     internal Req Req { get; }
     internal CamadaEngine Engine { get; }
+    private volatile bool _signalled;
+    internal bool Signalled { get => _signalled; set => _signalled = value; }   // a non-HTML request passed under a challenge: x-camada-challenge header and `chs: 1` on its event
     internal bool Challenged { get; set; }   // ServeChallenge() answered from inside the app: its event already shipped
 }
