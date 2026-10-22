@@ -143,21 +143,23 @@ public class QueueTests
     {
         var a = new FakeAnalyst();
         var gate = new ManualResetEventSlim(false);
+        var entered = new ManualResetEventSlim(false);
         Transport inner = a.Transport;
         var q = Queue(a, maxBatch: 1, flushS: 60);
         q.Transport = req =>
         {
-            gate.Wait(2000);   // the periodic flush is mid-POST when the exit drain starts
+            entered.Set();   // batch [1] is already dequeued once the POST starts
+            gate.Wait(Hosts.PatienceMs);   // the periodic flush is mid-POST when the exit drain starts
             return inner(req);
         };
         q.Push(Row("i", 1));
-        Hosts.WaitUntil(() => q.InFlight);
+        Assert.True(entered.Wait(Hosts.PatienceMs));   // the POST itself is in flight, not just the semaphore taken
         q.Push(Row("i", 2));
         q.Flush();   // the request-path flush yields to the one in flight
         Assert.Empty(a.Events);
-        var t = Task.Run(() => q.Drain(budgetS: 2));
+        var t = Task.Run(() => q.Drain(budgetS: Hosts.PatienceMs / 1000.0));
         gate.Set();
-        await t.WaitAsync(TimeSpan.FromSeconds(2));
+        await t.WaitAsync(TimeSpan.FromMilliseconds(Hosts.PatienceMs));
         Assert.Equal("1|2", Flat(a));
         q.Stop();
     }
@@ -167,15 +169,22 @@ public class QueueTests
     {
         var a = new FakeAnalyst();
         var q = Queue(a, flushS: 60);
+        var hung = new ManualResetEventSlim(false);
+        var entered = new ManualResetEventSlim(false);
         q.Transport = req =>
         {
-            Thread.Sleep(1500);
+            entered.Set();
+            hung.Wait(Hosts.PatienceMs);   // a POST that outlives the budget by far
             return a.Transport(req);
         };
         q.Push(Row("i", 1));
         var t0 = Environment.TickCount64;
         q.Drain(budgetS: 0.1);
-        Assert.InRange(Environment.TickCount64 - t0, 0, 1000);   // abandoned, not awaited
+        // loose bound: a CPU-starved machine passes, a Drain that overruns its budget by seconds fails
+        Assert.InRange(Environment.TickCount64 - t0, 0, 10_000);
+        Assert.Empty(a.Events);   // abandoned, not awaited: Drain returned while the POST still hangs
+        Assert.True(entered.Wait(Hosts.PatienceMs));   // the abandoned POST really started and hangs
+        hung.Set();
         q.Stop();
     }
 }

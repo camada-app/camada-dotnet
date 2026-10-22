@@ -61,22 +61,26 @@ public static class Hosts
         return new CamadaEngine(opts);
     }
 
-    /// <summary>The one polling helper of the suite: spins (5 ms) until `cond` holds or `ms` have passed.</summary>
-    public static void WaitUntil(Func<bool> cond, int ms = 2000)
+    /// <summary>The suite's bound on anything it waits for. Generous on purpose: every wait returns the moment its
+    /// condition holds, and a CPU-starved machine (other suites running alongside) can hold a queued poll, flush or
+    /// loopback request for seconds.</summary>
+    public const int PatienceMs = 30_000;
+
+    /// <summary>The one polling helper of the suite: spins (5 ms) until `cond` holds or `PatienceMs` have passed.</summary>
+    public static void WaitUntil(Func<bool> cond)
     {
-        var end = Environment.TickCount64 + ms;
+        var end = Environment.TickCount64 + PatienceMs;
         while (!cond() && Environment.TickCount64 < end)
         {
             Thread.Sleep(5);
         }
     }
 
-    /// <summary>Waits for the boot poll. The bound is generous on purpose: it returns the moment the snapshot
-    /// lands, and a CPU-starved machine (other suites running alongside) can hold the queued poll past 2 s.</summary>
+    /// <summary>Waits for the boot poll.</summary>
     public static void Loaded(CamadaEngine engine)
     {
         Assert.NotNull(engine.Snap);
-        WaitUntil(() => engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason != "cold", ms: 30_000);
+        WaitUntil(() => engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason != "cold");
         Assert.NotEqual("cold", engine.Snap!.Verdict(new MatchInput { Ip = "0.0.0.0" }).Reason);
     }
 
@@ -186,4 +190,11 @@ public sealed class Host : IDisposable
     }
 
     public void Dispose() => Engine.Stop();
+}
+
+/// <summary>Tests that need an unstarved thread pool or touch process-global state; xUnit runs this collection alone.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public class SerialCollection
+{
+    public const string Name = "serial";
 }
