@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Camada.Tests;
 
+[Collection(SerialCollection.Name)] // real Kestrel serves on the pool the parallel tests keep busy
 public class ExtensionsTests : IDisposable
 {
     private readonly FakeAnalyst _a = new();
