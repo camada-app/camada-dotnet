@@ -359,7 +359,7 @@ public sealed class CamadaEngine
         {
             row.Remove(k);
         }
-        row["sig"] = 1;   // spread first: ip and tap are the server's word
+        row["sig"] = 1;   // spread first: ip, tap and rts are the server's word
         row["ip"] = ip;
         row["tap"] = Tap;
         row["rts"] = NowMs();   // the relay's clock, not the browser's
