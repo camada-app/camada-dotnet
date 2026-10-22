@@ -170,19 +170,17 @@ public class QueueTests
         var a = new FakeAnalyst();
         var q = Queue(a, flushS: 60);
         var hung = new ManualResetEventSlim(false);
+        var entered = new ManualResetEventSlim(false);
         q.Transport = req =>
         {
+            entered.Set();
             hung.Wait(Hosts.PatienceMs);   // a POST that outlives the budget by far
             return a.Transport(req);
         };
         q.Push(Row("i", 1));
-        var t0 = Environment.TickCount64;
         q.Drain(budgetS: 0.1);
-        // loose bound: a CPU-starved machine passes, a Drain that ignores its budget (waits out the hung POST) fails
-        Assert.InRange(Environment.TickCount64 - t0, 0, 10_000);
         Assert.Empty(a.Events);   // abandoned, not awaited: Drain returned while the POST still hangs
-        Hosts.WaitUntil(() => q.InFlight);
-        Assert.True(q.InFlight);   // a POST really was hung in flight, not never started
+        Assert.True(entered.Wait(Hosts.PatienceMs));   // a POST really was hung in flight, not never started
         hung.Set();
         q.Stop();
     }
