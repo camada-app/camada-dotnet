@@ -191,3 +191,10 @@ public sealed class Host : IDisposable
 
     public void Dispose() => Engine.Stop();
 }
+
+/// <summary>Tests that need an unstarved thread pool or touch process-global state; xUnit runs this collection alone.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public class SerialCollection
+{
+    public const string Name = "serial";
+}
