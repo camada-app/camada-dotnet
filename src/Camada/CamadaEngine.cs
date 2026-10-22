@@ -29,6 +29,10 @@ public sealed class CamadaEngine
     public const string SessionCookie = "_sfp";         // same cookie as the edge collector: sid/ns comparable across taps
     public const int SessionMaxAge = 2592000;           // 30 days
 
+    // Row keys only the SDK can attest (TLS/network facts, outcome, session, track()). A beacon body is the
+    // visitor's, so these never ride a sig:1 row; the analyst joins them from the beacon's request row.
+    private static readonly string[] RequestRowKeys = { "tlsx", "ja4", "asn", "cc", "sid", "ns", "st", "dur", "rt", "blk", "rl", "wrn", "chs", "ch", "et", "uid" };
+
     private static readonly object DefaultLock = new();
     private static CamadaEngine? _default;
 
@@ -350,6 +354,10 @@ public sealed class CamadaEngine
         if (row == null)
         {
             return answer;
+        }
+        foreach (var k in RequestRowKeys)
+        {
+            row.Remove(k);
         }
         row["sig"] = 1;   // spread first: ip and tap are the server's word
         row["ip"] = ip;
