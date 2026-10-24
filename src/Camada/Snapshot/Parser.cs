@@ -20,6 +20,7 @@
 //
 // A Uint32Array is a MemoryMarshal.Cast over the frame's bytes: zero-copy, native-endian, so the
 // parser refuses a big-endian platform rather than match garbage (Python's port does the same).
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -112,7 +113,20 @@ public static class Parser
 {
     private static readonly Dictionary<uint, int> Formats = new() { [0x424C4B33] = 3, [0x424C4B34] = 4, [0x424C4B35] = 5 };
     private static readonly HashSet<string> Actions = new() { "skip", "block", "challenge", "warn" };
-    private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(50);
+    public const int MatchBudgetMs = 50;            // regex-limit v1: per match, set as each Regex's own timeout
+    public const int RequestRegexBudgetMs = 100;    // regex-limit v1: summed over one request's rule walk
+    private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(MatchBudgetMs);
+
+    // The rule walk of one Match call is synchronous on one thread, so a thread-static budget is request-scoped.
+    // Outside a walk (legacy pathsRegex, direct calls) only the per-match timeout applies.
+    [ThreadStatic] private static long? _budgetLeft;   // Stopwatch ticks left in the open walk; null when none is active
+
+    internal static void OpenRequestBudget()
+    {
+        _budgetLeft = RequestRegexBudgetMs * Stopwatch.Frequency / 1000;
+    }
+
+    internal static void CloseRequestBudget() => _budgetLeft = null;
 
     private static U32 Words(ReadOnlyMemory<byte> binary)
     {
@@ -322,6 +336,11 @@ public static class Parser
     /// rule and the legacy path list pass false.</summary>
     internal static bool Search(Regex rx, string input, bool onFailure = false)
     {
+        if (_budgetLeft <= 0)
+        {
+            return onFailure;   // the request's regex budget is spent: answer like an over-limit run, without running
+        }
+        var t0 = Stopwatch.GetTimestamp();
         try
         {
             return rx.IsMatch(input);
@@ -329,6 +348,13 @@ public static class Parser
         catch (RegexMatchTimeoutException)
         {
             return onFailure;
+        }
+        finally
+        {
+            if (_budgetLeft is not null)
+            {
+                _budgetLeft -= Stopwatch.GetTimestamp() - t0;
+            }
         }
     }
 
