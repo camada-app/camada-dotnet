@@ -34,7 +34,7 @@ public class ParseTests
 
     private static JsonElement Meta(string json) => JsonDocument.Parse(json).RootElement;
 
-    private static Matcher RulesSnapshot(string rulesJson, params (int Type, uint[] Words)[] sections) =>
+    internal static Matcher RulesSnapshot(string rulesJson, params (int Type, uint[] Words)[] sections) =>
         new(Parser.ParseSnapshot(Container(0x424C4B35, sections), Meta($$"""{"version":"v","rules":{{rulesJson}}}""")));
 
     [Fact]

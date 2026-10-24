@@ -119,16 +119,14 @@ public static class Parser
 
     // The rule walk of one Match call is synchronous on one thread, so a thread-static budget is request-scoped.
     // Outside a walk (legacy pathsRegex, direct calls) only the per-match timeout applies.
-    [ThreadStatic] private static bool _walking;
-    [ThreadStatic] private static long _budgetLeft;   // Stopwatch ticks
+    [ThreadStatic] private static long? _budgetLeft;   // Stopwatch ticks left in the open walk; null when none is active
 
     internal static void OpenRequestBudget()
     {
-        _walking = true;
         _budgetLeft = RequestRegexBudgetMs * Stopwatch.Frequency / 1000;
     }
 
-    internal static void CloseRequestBudget() => _walking = false;
+    internal static void CloseRequestBudget() => _budgetLeft = null;
 
     private static U32 Words(ReadOnlyMemory<byte> binary)
     {
@@ -338,7 +336,7 @@ public static class Parser
     /// rule and the legacy path list pass false.</summary>
     internal static bool Search(Regex rx, string input, bool onFailure = false)
     {
-        if (_walking && _budgetLeft <= 0)
+        if (_budgetLeft <= 0)
         {
             return onFailure;   // the request's regex budget is spent: answer like an over-limit run, without running
         }
@@ -353,7 +351,7 @@ public static class Parser
         }
         finally
         {
-            if (_walking)
+            if (_budgetLeft is not null)
             {
                 _budgetLeft -= Stopwatch.GetTimestamp() - t0;
             }
