@@ -34,18 +34,8 @@ public class RegexLimitTests
         Ua = i.TryGetProperty("ua", out var u) ? Text(u) : null,
     };
 
-    /// <summary>A v5 snapshot (blk5/v5-empty.bin plus meta with rules = the given rules) behind the public matcher.</summary>
-    private static Matcher MatcherOf(params JsonNode[] rules)
-    {
-        var meta = JsonNode.Parse(Fixtures.PathOf("blk5/v5-empty.meta.json") is var f ? File.ReadAllText(f) : "")!;
-        var arr = new JsonArray();
-        foreach (var r in rules)
-        {
-            arr.Add(JsonNode.Parse(r.ToJsonString()));
-        }
-        meta["rules"] = arr;
-        return new Matcher(Parser.ParseSnapshot(Fixtures.ReadBin("blk5/v5-empty.bin"), JsonDocument.Parse(meta.ToJsonString()).RootElement));
-    }
+    private static Matcher MatcherOf(params JsonNode[] rules) =>
+        ParseTests.RulesSnapshot("[" + string.Join(",", rules.Select(r => r.ToJsonString())) + "]");
 
     private static JsonNode Rule(string id, string action, string field, string pattern) =>
         JsonNode.Parse(JsonSerializer.Serialize(new { id, action, conds = new[] { new { f = field, op = "matches", v = pattern } } }))!;
