@@ -252,21 +252,29 @@ public sealed class Matcher
         if (s.Rules.Count > 0)
         {
             var r = new RuleRequest { N4 = n4, Ip6 = w, Asn = i.Asn, Country = i.Country, Tlsx = i.Tlsx, Paths = paths, Ua = i.Ua, Header = i.Header };
-            foreach (var rule in s.Rules)   // the order IS the precedence (§A4): first match wins
+            Parser.OpenRequestBudget();   // regex-limit v1: the walk's regexes share one request budget
+            try
             {
-                var all = true;
-                foreach (var cond in rule.Conds)
+                foreach (var rule in s.Rules)   // the order IS the precedence (§A4): first match wins
                 {
-                    if (!cond(r))
+                    var all = true;
+                    foreach (var cond in rule.Conds)
                     {
-                        all = false;
-                        break;
+                        if (!cond(r))
+                        {
+                            all = false;
+                            break;
+                        }
+                    }
+                    if (all)
+                    {
+                        return RuleResult(rule, s.Version);
                     }
                 }
-                if (all)
-                {
-                    return RuleResult(rule, s.Version);
-                }
+            }
+            finally
+            {
+                Parser.CloseRequestBudget();
             }
         }
         var reason = Side(s.Allow, i, n4, w, paths, deny: false);   // an exemption: every canonical spelling must agree
