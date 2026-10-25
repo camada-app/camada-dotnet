@@ -91,7 +91,8 @@ public class RegexLimitTests
             foreach (var c in row.GetProperty("cases").EnumerateArray())
             {
                 var input = new MatchInput { Ip = "8.8.8.8", Ua = Text(c.GetProperty("ua")) };
-                Assert.True(c.GetProperty("hit").GetProperty("native").GetBoolean() == Hit(m, input, (string)rule["id"]!), row.GetProperty("id").GetString());
+                Assert.True(c.GetProperty("hit").GetProperty("native").GetBoolean() == Hit(m, input, (string)rule["id"]!),
+                    $"{row.GetProperty("id").GetString()} ua={c.GetProperty("ua").GetRawText()}");
             }
         }
     }
