@@ -138,8 +138,17 @@ public static class Paths
 
     /// <summary>Does `pred` hold for this request's path? deny (block/challenge/warn) = any spelling;
     /// exemption (allow/skip) = both canonical forms.</summary>
-    public static bool Hit(Func<string, bool> pred, string[] forms, bool deny) =>
-        deny ? pred(forms[0]) || pred(forms[1]) || pred(forms[2]) : pred(forms[1]) && pred(forms[2]);
+    public static bool Hit(Func<string, bool> pred, string[] forms, bool deny)
+    {
+        if (deny)
+        {
+            // a form equal to one already tried is not matched again, so a repeat never spends the request's regex budget twice
+            return pred(forms[0])
+                || (forms[1] != forms[0] && pred(forms[1]))
+                || (forms[2] != forms[0] && forms[2] != forms[1] && pred(forms[2]));
+        }
+        return pred(forms[1]) && (forms[2] == forms[1] || pred(forms[2]));
+    }
 
     /// <summary>One path condition -> a predicate over a single path form.</summary>
     public static Func<string, bool> Pred(string op, IReadOnlyList<string> values, bool deny)
