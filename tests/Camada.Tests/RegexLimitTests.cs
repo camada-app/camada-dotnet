@@ -76,27 +76,13 @@ public class RegexLimitTests
         }
     }
 
-    [Fact]
-    public void RefusedPatternsRunNatively()
+    [Theory]
+    [InlineData("refused")]
+    [InlineData("accepted_match")]
+    public void NativeRowsRunNatively(string key)
     {
         var rr = V.GetProperty("refused_rule");
-        foreach (var row in V.GetProperty("refused").EnumerateArray())
-        {
-            var rule = Rule(rr.GetProperty("id").GetString()!, rr.GetProperty("action").GetString()!, rr.GetProperty("field").GetString()!, row.GetProperty("pattern").GetString()!);
-            var m = MatcherOf(rule);
-            foreach (var c in row.GetProperty("cases").EnumerateArray())
-            {
-                var input = new MatchInput { Ip = "8.8.8.8", Ua = Text(c.GetProperty("ua")) };
-                Assert.True(c.GetProperty("hit").GetProperty("native").GetBoolean() == Hit(m, input, (string)rule["id"]!), row.GetProperty("id").GetString());
-            }
-        }
-    }
-
-    [Fact]
-    public void AcceptedMatchRowsRunNatively()
-    {
-        var rr = V.GetProperty("refused_rule");
-        var rows = V.GetProperty("accepted_match").EnumerateArray().ToList();
+        var rows = V.GetProperty(key).EnumerateArray().ToList();
         Assert.NotEmpty(rows);
         foreach (var row in rows)
         {
