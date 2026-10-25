@@ -111,4 +111,39 @@ public class RegexLimitTests
         // no walk active: only the per-match limit applies
         Assert.True(Parser.Search(Parser.CompileRegex("^a")!, "abc"));
     }
+
+    public static IEnumerable<object[]> NonStringMatches()
+    {
+        foreach (var v in new[] { "123", "0", "true", "null", "{\"x\":1}", "[\"^/a\"]", "[123]", "\"\"" })
+        {
+            foreach (var f in new[] { "ua", "path", "header" })
+            {
+                foreach (var over in new[] { false, true })
+                {
+                    yield return new object[] { v, f, over };
+                }
+            }
+        }
+    }
+
+    // camada-all-zpbv: a stored `matches` value that is '' or not a string never matches, over the cap or not.
+    [Theory]
+    [MemberData(nameof(NonStringMatches))]
+    public void ANonStringMatchesValueNeverMatches(string v, string f, bool over)
+    {
+        const string str = "123 0 null true True {\"x\":1} [\"^/a\"] [123] System.Text.Json.Nodes.JsonObject";   // every coerced spelling
+        var big = new string('a', Parser.MaxMatchInput + 1);
+        var input = new MatchInput
+        {
+            Ip = "8.8.8.8",
+            Path = over && f == "path" ? $"/a/{str}/{big}" : $"/a/{str}",
+            Ua = over && f == "ua" ? $"{str} {big}" : str,
+            Header = _ => over && f == "header" ? $"{str} {big}" : str,
+        };
+        var name = f == "header" ? ",\"name\":\"x-h\"" : "";
+        var cond = $"{{\"f\":\"{f}\",\"op\":\"matches\",\"v\":{v}{name}}}";
+        const string blk = "{\"id\":\"cr_blk\",\"action\":\"block\",\"conds\":[{\"f\":\"ip\",\"op\":\"is_not\",\"v\":\"1.1.1.1\"}]}";
+        Assert.False(ParseTests.RulesSnapshot($"[{{\"id\":\"cr_b\",\"action\":\"block\",\"conds\":[{cond}]}}]").Match(input).Block);
+        Assert.Equal("cr_blk", ParseTests.RulesSnapshot($"[{{\"id\":\"cr_s\",\"action\":\"skip\",\"conds\":[{cond}]}},{blk}]").Match(input).Rule);
+    }
 }
