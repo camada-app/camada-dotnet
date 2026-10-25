@@ -103,7 +103,7 @@ public sealed class Snapshot
     public required HashSet<string> Tls { get; init; }
     public required HashSet<string> PathsExact { get; init; }
     public required HashSet<string> PathsPrefix { get; init; }
-    public required IReadOnlyList<Regex> PathsRegex { get; init; }
+    public required IReadOnlyList<Func<string, bool>> PathsRegex { get; init; }
     public required RangeSet Allow { get; init; }
     public required RangeSet Challenge { get; init; }
     public required IReadOnlyList<CompiledRule> Rules { get; init; }   // v5 only; empty on v3/v4, and the matcher then skips them
@@ -114,11 +114,11 @@ public static class Parser
     private static readonly Dictionary<uint, int> Formats = new() { [0x424C4B33] = 3, [0x424C4B34] = 4, [0x424C4B35] = 5 };
     private static readonly HashSet<string> Actions = new() { "skip", "block", "challenge", "warn" };
     public const int MatchBudgetMs = 50;            // regex-limit v1: per match, set as each Regex's own timeout
-    public const int RequestRegexBudgetMs = 100;    // regex-limit v1: summed over one request's rule walk
+    public const int RequestRegexBudgetMs = 100;    // regex-limit v1: summed over one request's decision
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(MatchBudgetMs);
 
-    // The rule walk of one Match call is synchronous on one thread, so a thread-static budget is request-scoped.
-    // Outside a walk (legacy pathsRegex, direct calls) only the per-match timeout applies.
+    // One Match call (rule walk, meta pathsRegex, allow and challenge sides) is synchronous on one thread, so a
+    // thread-static budget is request-scoped. Outside a Match call (direct calls) only the per-match timeout applies.
     [ThreadStatic] private static long? _budgetLeft;   // Stopwatch ticks left in the open walk; null when none is active
 
     internal static void OpenRequestBudget()
@@ -333,7 +333,7 @@ public static class Parser
 
     /// <summary>A guarded IsMatch: a timeout (catastrophic backtracking on hostile input) never throws. It answers
     /// <paramref name="onFailure"/>: a deny rule passes true so a failure fails closed like an over-cap value; a skip
-    /// rule and the legacy path list pass false.</summary>
+    /// rule passes false.</summary>
     internal static bool Search(Regex rx, string input, bool onFailure = false)
     {
         if (_budgetLeft <= 0)
@@ -597,7 +597,7 @@ public static class Parser
             Tls = Strings(meta, "tls"),
             PathsExact = CanonSet(meta, "pathsExact", v => Paths.Canon(v)),
             PathsPrefix = CanonSet(meta, "pathsPrefix", Paths.DirKey),
-            PathsRegex = Strings(meta, "pathsRegex").Select(p => CompileRegex(p, ignoreCase: true)).Where(rx => rx != null).Cast<Regex>().ToList(),
+            PathsRegex = Strings(meta, "pathsRegex").Select(p => Paths.Pred("matches", new[] { p }, deny: true)).ToList(),
             Allow = MakeRangeSet(Sec(sec, 10), Sec(sec, 11), Sub(meta, "allow")),
             Challenge = MakeRangeSet(Sec(sec, 12), Sec(sec, 13), Sub(meta, "challenge")),
             Rules = CompileRules(meta, rule4, rule6),
