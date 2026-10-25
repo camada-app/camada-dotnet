@@ -134,7 +134,7 @@ public class TestV5
     public void RulesCases()
     {
         var m = Conformance.MatcherOf("v5-rules", "blk5");
-        Assert.Equal(182, Rules.Count());
+        Assert.Equal(185, Rules.Count());
         foreach (var c in Rules)
         {
             Assert.True(Conformance.Expect5(c) == Conformance.Outcome5(m.Match(Conformance.AsInput(c))), Conformance.Label(c));
