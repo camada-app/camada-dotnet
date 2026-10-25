@@ -310,9 +310,9 @@ public static class Parser
             var ch = pattern[i];
             if (ch == '\\' && i + 1 < pattern.Length)
             {
-                if (pattern[i + 1] == 'c' && !(i + 2 < pattern.Length && char.IsAsciiLetter(pattern[i + 2])))
+                if (pattern[i + 1] == 'c' && !(i + 2 < pattern.Length && (char.IsAsciiLetter(pattern[i + 2]) || (inClass && (char.IsAsciiDigit(pattern[i + 2]) || pattern[i + 2] == '_')))))
                 {
-                    sb.Append("\\\\c");   // JS (non-u): \c before a non-letter is a literal backslash and c; .NET reads \c[ as ESC
+                    sb.Append("\\\\c");   // JS (non-u): \c before a non-letter is a literal backslash and c (in a class, \c + digit/_ stays a control escape); .NET reads \c[ as ESC
                     i++;
                     continue;
                 }
