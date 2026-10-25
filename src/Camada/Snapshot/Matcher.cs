@@ -10,7 +10,6 @@
 // At the SDK position only ip, path, ua and the request headers are usually known;
 // asn/country/tlsx entries and conditions then simply never match — that is the documented,
 // honest enforcement scope (fail open, never guess).
-using System.Text.RegularExpressions;
 
 namespace Camada.Snapshot;
 
