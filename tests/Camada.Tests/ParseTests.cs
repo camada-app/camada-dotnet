@@ -104,6 +104,46 @@ public class ParseTests
         Assert.Equal("path", m2.Match(new MatchInput { Path = "/dump" }).Reason);
     }
 
+    private static Matcher MetaRegex(string rulesJson, string pattern) =>
+        new(Parser.ParseSnapshot(Container(0x424C4B35), Meta($$"""{"version":"v","pathsRegex":["{{pattern}}"],"rules":{{rulesJson}}}""")));
+
+    [Fact]
+    public void MetaPathsRegexIsCaseInsensitive()
+    {
+        var m = MetaRegex("[]", "^/DUMP$");
+        Assert.Equal("path", m.Match(new MatchInput { Path = "/dump" }).Reason);
+        Assert.False(m.Match(new MatchInput { Path = "/dumpx" }).Block);
+    }
+
+    [Fact]
+    public void MetaPathsRegexTheRuntimeRefusesNeverMatches()
+    {
+        var m = MetaRegex("[]", "(?<=a");
+        Assert.False(m.Match(new MatchInput { Path = "/a" }).Block);
+    }
+
+    [Fact]
+    public void MetaPathsRegexOnAPathOverTheCapBlocks()
+    {
+        var m = MetaRegex("[]", "^/never$");
+        var over = m.Match(new MatchInput { Path = "/" + new string('a', Parser.MaxMatchInput) });
+        Assert.True(over.Block);
+        Assert.Equal("path", over.Reason);
+        Assert.False(m.Match(new MatchInput { Path = "/" + new string('a', Parser.MaxMatchInput - 1) }).Block);
+    }
+
+    [Fact]
+    public void MetaPathsRegexSharesTheRuleWalksRequestBudget()
+    {
+        var field = typeof(Parser).GetField("_budgetLeft", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var rules = """[{"id":"h","action":"block","conds":[{"f":"header","op":"is","name":"x-spend","v":"never"}]}]""";
+        var m = MetaRegex(rules, "^/never$");
+        var spend = m.Match(new MatchInput { Path = "/x", Header = _ => { field.SetValue(null, (long?)0); return null; } });
+        Assert.True(spend.Block);
+        Assert.Equal("path", spend.Reason);
+        Assert.False(m.Match(new MatchInput { Path = "/x", Header = _ => null }).Block);
+    }
+
     [Fact]
     public void ACatastrophicPatternTimingOutFailsClosedForDenyAndMissForSkip()
     {
