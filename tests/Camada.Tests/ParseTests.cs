@@ -222,6 +222,22 @@ public class ParseTests
         Assert.Equal("[\\s\\S]]", Parser.JsToDotNet("[^]]"));       // JS: any char, then a literal ]
         Assert.Equal("[a^]", Parser.JsToDotNet("[a^]"));           // inside a class: untouched
         Assert.Equal("\\[^]", Parser.JsToDotNet("\\[^]"));         // escaped: untouched
+        Assert.Equal("x(?!)a]y", Parser.JsToDotNet("x[]a]y"));     // JS: empty class (never matches), then a literal ]
+        Assert.Equal("\\[]", Parser.JsToDotNet("\\[]"));             // escaped: untouched
+        Assert.Equal("[a[]", Parser.JsToDotNet("[a[]"));           // inside a class: [ is not an opener
+        foreach (var (pattern, yes, no) in new[]
+        {
+            ("x[]-\\d]y", Array.Empty<string>(), new[] { "x]-5]y", "x-5]y", "x]y" }),   // raw, both engines refuse it (a ]-\d range)
+            ("x[^]-\\d]y", new[] { "xz-5]y" }, new[] { "x]y" }),
+            ("x[]a]y", Array.Empty<string>(), new[] { "x]y", "xay", "xa]y" }),            // raw, ECMAScript mode reads [\]a]
+            ("x[^]a]y", new[] { "xza]y" }, new[] { "xay" }),
+        })
+        {
+            var rx = Parser.CompileRegex(pattern)!;
+            Assert.All(yes, s => Assert.Matches(rx, s));
+            Assert.All(no, s => Assert.DoesNotMatch(rx, s));
+        }
+        Assert.DoesNotMatch(Parser.CompileRegex("x[]a]y", ignoreCase: true)!, "XA]Y");
         Assert.NotNull(Parser.CompileRegex("(?i)^/admin"));       // an inline flag ECMAScript mode refuses still compiles on the fallback
         Assert.Matches(Parser.CompileRegex("(?i)^/admin")!, "/ADMIN");
     }
