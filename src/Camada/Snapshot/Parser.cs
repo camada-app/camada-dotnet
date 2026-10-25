@@ -274,14 +274,15 @@ public static class Parser
 
     /// <summary>A pattern this runtime rejects never matches, and never throws (fail open). Patterns are
     /// authored as JS regexes (the analyst validates them with `new RegExp`), so ECMAScript mode is tried
-    /// first — it keeps \d \w \b ASCII and reads `[^]`, `\cX` and named groups as JS does — and a spelling
-    /// it refuses is retried on the default engine after JsToDotNet. Every match runs under a timeout.</summary>
+    /// first — it keeps \d \w \b ASCII and reads `\cX` and named groups as JS does — and a spelling it
+    /// refuses is retried on the default engine. JsToDotNet runs first for both. Every match runs under a timeout.</summary>
     public static Regex? CompileRegex(string pattern, bool ignoreCase = false)
     {
         var ic = ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None;   // path regexes run case-insensitively (§D3 "Path matching")
+        var p = JsToDotNet(pattern);   // before both engines: ECMAScript mode reads a raw `[]` as a literal-] class
         try
         {
-            return new Regex(pattern, RegexOptions.ECMAScript | RegexOptions.CultureInvariant | ic, MatchTimeout);
+            return new Regex(p, RegexOptions.ECMAScript | RegexOptions.CultureInvariant | ic, MatchTimeout);
         }
         catch (ArgumentException)
         {
@@ -289,7 +290,7 @@ public static class Parser
         }
         try
         {
-            return new Regex(JsToDotNet(pattern), RegexOptions.CultureInvariant | ic, MatchTimeout);
+            return new Regex(p, RegexOptions.CultureInvariant | ic, MatchTimeout);
         }
         catch (ArgumentException)
         {
@@ -297,7 +298,8 @@ public static class Parser
         }
     }
 
-    /// <summary>The one JS spelling the default engine refuses: `[^]` (any char) becomes `[\s\S]`.
+    /// <summary>The JS spellings .NET reads differently: `[^]` (any char) becomes `[\s\S]`, `[]` (empty class, never
+    /// matches) becomes `(?!)`.
     /// Named groups and `\cX` are native; anything else the engine rejects still fails open.</summary>
     public static string JsToDotNet(string pattern)
     {
@@ -322,6 +324,12 @@ public static class Parser
                 {
                     sb.Append("[\\s\\S]");
                     i += 2;
+                    continue;
+                }
+                if (string.CompareOrdinal(pattern, i, "[]", 0, 2) == 0)
+                {
+                    sb.Append("(?!)");
+                    i += 1;
                     continue;
                 }
                 inClass = true;
