@@ -378,15 +378,15 @@ public static class Parser
     /// condition, in condition order, so an ip condition consumes the next one.</summary>
     private static RuleCond CompileCond(JsonElement c, Queue<(U32 V4, U32 V6)> sets, bool deny)
     {
+        var f = Prop(c, "f");
+        var op = Prop(c, "op");
         // camada-all-zpbv: a matches value that is not a non-empty string never matches (it would
         // otherwise be coerced to a regex, '' matching everything); first, so it beats the over-cap path.
-        if (Prop(c, "op") == "matches"
+        if (op == "matches"
             && !(c.TryGetProperty("v", out var mv) && mv.ValueKind == JsonValueKind.String && mv.GetString() is { Length: > 0 }))
         {
             return _ => false;
         }
-        var f = Prop(c, "f");
-        var op = Prop(c, "op");
         var negate = op is "is_not" or "not_in";
         var values = new List<string>();
         if (c.TryGetProperty("v", out var raw) && raw.ValueKind == JsonValueKind.Array)
