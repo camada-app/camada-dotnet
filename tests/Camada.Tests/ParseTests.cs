@@ -225,6 +225,14 @@ public class ParseTests
         Assert.Equal("x(?!)a]y", Parser.JsToDotNet("x[]a]y"));     // JS: empty class (never matches), then a literal ]
         Assert.Equal("\\[]", Parser.JsToDotNet("\\[]"));             // escaped: untouched
         Assert.Equal("[a[]", Parser.JsToDotNet("[a[]"));           // inside a class: [ is not an opener
+        Assert.Equal("\\\\c[\\s\\S]", Parser.JsToDotNet("\\c[^]"));   // JS: literal \c, then any char
+        Assert.Equal("\\cz", Parser.JsToDotNet("\\cz"));           // \c + letter stays a control escape
+        Assert.Equal("a\\\\c", Parser.JsToDotNet("a\\c"));         // trailing \c
+        Assert.Equal("[\\x11\\x1F]", Parser.JsToDotNet("[\\c1\\c_]"));       // in a class, \c + digit/_ is a control escape
+        Assert.Matches(Parser.CompileRegex("[\\c1]|admin")!, "admin");
+        Assert.Equal("\\\\c1", Parser.JsToDotNet("\\c1"));           // outside a class it is a literal \c
+        Assert.Matches(Parser.CompileRegex("\\c[]|admin")!, "admin");
+        Assert.Matches(Parser.CompileRegex("\\c[^]")!, "\\cz");
         foreach (var (pattern, yes, no) in new[]
         {
             ("x[]-\\d]y", Array.Empty<string>(), new[] { "x]-5]y", "x-5]y", "x]y" }),   // raw, both engines refuse it (a ]-\d range)
