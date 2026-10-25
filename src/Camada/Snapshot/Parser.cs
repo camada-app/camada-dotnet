@@ -388,6 +388,13 @@ public static class Parser
     {
         var f = Prop(c, "f");
         var op = Prop(c, "op");
+        // camada-all-zpbv: a matches value that is not a non-empty string never matches (it would
+        // otherwise be coerced to a regex, '' matching everything); first, so it beats the over-cap path.
+        if (op == "matches"
+            && !(c.TryGetProperty("v", out var mv) && mv.ValueKind == JsonValueKind.String && mv.GetString() is { Length: > 0 }))
+        {
+            return _ => false;
+        }
         var negate = op is "is_not" or "not_in";
         var values = new List<string>();
         if (c.TryGetProperty("v", out var raw) && raw.ValueKind == JsonValueKind.Array)
