@@ -10,7 +10,6 @@
 // At the SDK position only ip, path, ua and the request headers are usually known;
 // asn/country/tlsx entries and conditions then simply never match — that is the documented,
 // honest enforcement scope (fail open, never guess).
-using System.Text.RegularExpressions;
 
 namespace Camada.Snapshot;
 
@@ -149,7 +148,7 @@ public sealed class Matcher
     }
 
     /// <summary>Exact, prefix (directory walk) or regex, over one path form.</summary>
-    private static bool PathIn(HashSet<string> exact, HashSet<string> prefix, IReadOnlyList<Regex>? regex, string p)
+    private static bool PathIn(HashSet<string> exact, HashSet<string> prefix, IReadOnlyList<Func<string, bool>>? regex, string p)
     {
         if (exact.Contains(p) || (prefix.Count > 0 && Paths.Prefixed(prefix, p)))
         {
@@ -157,9 +156,9 @@ public sealed class Matcher
         }
         if (regex != null)
         {
-            foreach (var rx in regex)
+            foreach (var pred in regex)
             {
-                if (Parser.Search(rx, p))
+                if (pred(p))
                 {
                     return true;
                 }
@@ -249,12 +248,12 @@ public sealed class Matcher
             }
         }
         var paths = Paths.Forms(i.Path);   // [raw, lit, full]: contracts §D3 "Path matching"
-        if (s.Rules.Count > 0)
+        Parser.OpenRequestBudget();   // regex-limit v1: the whole decision (rule walk, meta pathsRegex) shares one request budget
+        try
         {
-            var r = new RuleRequest { N4 = n4, Ip6 = w, Asn = i.Asn, Country = i.Country, Tlsx = i.Tlsx, Paths = paths, Ua = i.Ua, Header = i.Header };
-            Parser.OpenRequestBudget();   // regex-limit v1: the walk's regexes share one request budget
-            try
+            if (s.Rules.Count > 0)
             {
+                var r = new RuleRequest { N4 = n4, Ip6 = w, Asn = i.Asn, Country = i.Country, Tlsx = i.Tlsx, Paths = paths, Ua = i.Ua, Header = i.Header };
                 foreach (var rule in s.Rules)   // the order IS the precedence (§A4): first match wins
                 {
                     var all = true;
@@ -272,26 +271,26 @@ public sealed class Matcher
                     }
                 }
             }
-            finally
+            var reason = Side(s.Allow, i, n4, w, paths, deny: false);   // an exemption: every canonical spelling must agree
+            if (reason != null)
             {
-                Parser.CloseRequestBudget();
+                return new MatchResult(Allowed: true, Reason: reason, Version: s.Version);
             }
+            reason = BlockSide(i, n4, w, paths);
+            if (reason != null)
+            {
+                return new MatchResult(Block: true, Reason: reason, Version: s.Version);
+            }
+            reason = Side(s.Challenge, i, n4, w, paths, deny: true);
+            if (reason != null)
+            {
+                return new MatchResult(Challenge: true, Reason: reason, Version: s.Version);
+            }
+            return new MatchResult(Version: s.Version);
         }
-        var reason = Side(s.Allow, i, n4, w, paths, deny: false);   // an exemption: every canonical spelling must agree
-        if (reason != null)
+        finally
         {
-            return new MatchResult(Allowed: true, Reason: reason, Version: s.Version);
+            Parser.CloseRequestBudget();
         }
-        reason = BlockSide(i, n4, w, paths);
-        if (reason != null)
-        {
-            return new MatchResult(Block: true, Reason: reason, Version: s.Version);
-        }
-        reason = Side(s.Challenge, i, n4, w, paths, deny: true);
-        if (reason != null)
-        {
-            return new MatchResult(Challenge: true, Reason: reason, Version: s.Version);
-        }
-        return new MatchResult(Version: s.Version);
     }
 }
