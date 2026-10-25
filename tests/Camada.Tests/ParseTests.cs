@@ -227,6 +227,7 @@ public class ParseTests
         Assert.Equal("[a\\[]", Parser.JsToDotNet("[a[]"));          // inside a class: [ is a literal, escaped
         Assert.Equal("x[a-z-\\[aeiou]]y", Parser.JsToDotNet("x[a-z-[aeiou]]y"));   // not .NET class subtraction
         Assert.Equal("[\\[]", Parser.JsToDotNet("[\\[]"));           // already escaped: untouched
+        Assert.Matches(Parser.CompileRegex("^[!-[]$")!, "[");   // a range ending in [ used to fail to compile
         foreach (var opts in new[] { true, false })
         {
             var sub = Parser.CompileRegex("x[a-z-[aeiou]]y", ignoreCase: opts)!;
