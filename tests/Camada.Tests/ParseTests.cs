@@ -228,6 +228,8 @@ public class ParseTests
         Assert.Equal("\\\\c[\\s\\S]", Parser.JsToDotNet("\\c[^]"));   // JS: literal \c, then any char
         Assert.Equal("\\cz", Parser.JsToDotNet("\\cz"));           // \c + letter stays a control escape
         Assert.Equal("a\\\\c", Parser.JsToDotNet("a\\c"));         // trailing \c
+        Assert.Equal("[\\c1_]", Parser.JsToDotNet("[\\c1_]"));       // in a class, \c + digit/_ is a control escape
+        Assert.Equal("\\\\c1", Parser.JsToDotNet("\\c1"));           // outside a class it is a literal \c
         Assert.Matches(Parser.CompileRegex("\\c[]|admin")!, "admin");
         Assert.Matches(Parser.CompileRegex("\\c[^]")!, "\\cz");
         foreach (var (pattern, yes, no) in new[]
