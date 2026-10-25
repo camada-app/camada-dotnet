@@ -296,4 +296,27 @@ public class ParseTests
         Assert.Equal("c", Rule(m, new MatchInput { Path = "/api/v2/dump" }));
         Assert.Equal(new[] { "/a%0a%7f", "/a%0a%7f", "/a%0a%7f" }, Paths.Forms("/a\n\x7f"));
     }
+
+    [Fact]
+    public void PathHitTriesARepeatedFormOnce()
+    {
+        var n = 0;
+        var same = Paths.Forms("/a/b");
+        Assert.False(Paths.Hit(_ => { n++; return false; }, same, true));
+        Assert.Equal(1, n);
+        n = 0;
+        Assert.True(Paths.Hit(_ => { n++; return true; }, same, false));
+        Assert.Equal(1, n);
+        n = 0;
+        Assert.False(Paths.Hit(_ => { n++; return false; }, same, false));
+        Assert.Equal(1, n);
+        n = 0;
+        string[] three = ["/a", "/b", "/c"];
+        Assert.False(Paths.Hit(_ => { n++; return false; }, three, true));
+        Assert.Equal(3, n);
+        Assert.True(Paths.Hit(p => p == "/c", three, true));
+        Assert.True(Paths.Hit(p => p == "/b", ["/a", "/b", "/b"], true));
+        Assert.False(Paths.Hit(p => p == "/b", three, false));
+        Assert.True(Paths.Hit(p => p != "/a", three, false));
+    }
 }
