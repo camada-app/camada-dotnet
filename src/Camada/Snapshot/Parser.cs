@@ -300,7 +300,7 @@ public static class Parser
 
     /// <summary>The JS spellings .NET reads differently: `[^]` (any char) becomes `[\s\S]`, `[]` (empty class, never
     /// matches) becomes `(?!)`.
-    /// Named groups and `\cX` are native; anything else the engine rejects still fails open.</summary>
+    /// Named groups and `\cX` are native (`\c` before a non-letter becomes `\\c`); anything else the engine rejects still fails open.</summary>
     public static string JsToDotNet(string pattern)
     {
         var sb = new System.Text.StringBuilder(pattern.Length + 8);
@@ -310,6 +310,18 @@ public static class Parser
             var ch = pattern[i];
             if (ch == '\\' && i + 1 < pattern.Length)
             {
+                if (pattern[i + 1] == 'c' && !(i + 2 < pattern.Length && char.IsAsciiLetter(pattern[i + 2])))
+                {
+                    if (inClass && i + 2 < pattern.Length && (char.IsAsciiDigit(pattern[i + 2]) || pattern[i + 2] == '_'))
+                    {
+                        sb.Append("\\x").Append((pattern[i + 2] % 32).ToString("X2", CultureInfo.InvariantCulture));   // JS Annex B: in a class, \c + digit/_ is a control char
+                        i += 2;
+                        continue;
+                    }
+                    sb.Append("\\\\c");   // JS (non-u): \c before a non-letter is a literal backslash and c; .NET reads \c[ as ESC
+                    i++;
+                    continue;
+                }
                 sb.Append(ch).Append(pattern[i + 1]);
                 i++;
                 continue;
