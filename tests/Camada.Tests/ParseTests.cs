@@ -336,4 +336,34 @@ public class ParseTests
         Assert.Equal("c", Rule(m, new MatchInput { Path = "/api/v2/dump" }));
         Assert.Equal(new[] { "/a%0a%7f", "/a%0a%7f", "/a%0a%7f" }, Paths.Forms("/a\n\x7f"));
     }
+
+    [Fact]
+    public void PathHitTriesARepeatedFormOnce()
+    {
+        var n = 0;
+        Func<string, bool> no = _ => ++n < 0, yes = _ => ++n > 0;
+        var same = Paths.Forms("/a/b");
+        string[] three = ["/a", "/b", "/c"], repeat = ["/a", "/b", "/b"];
+        Assert.False(Paths.Hit(no, same, true));
+        Assert.Equal(1, n);
+        n = 0;
+        Assert.True(Paths.Hit(yes, same, false));
+        Assert.Equal(1, n);
+        n = 0;
+        Assert.False(Paths.Hit(no, same, false));
+        Assert.Equal(1, n);
+        n = 0;
+        Assert.False(Paths.Hit(no, three, true));
+        Assert.Equal(3, n);
+        n = 0;
+        Assert.False(Paths.Hit(no, repeat, true));
+        Assert.Equal(2, n);
+        n = 0;
+        Assert.False(Paths.Hit(no, three, false));
+        Assert.Equal(1, n);
+        Assert.True(Paths.Hit(p => p == "/c", three, true));
+        Assert.True(Paths.Hit(p => p == "/b", repeat, true));
+        Assert.False(Paths.Hit(p => p == "/b", three, false));
+        Assert.True(Paths.Hit(p => p != "/a", three, false));
+    }
 }
