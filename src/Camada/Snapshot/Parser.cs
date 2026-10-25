@@ -119,7 +119,7 @@ public static class Parser
 
     // One Match call (rule walk, meta pathsRegex, allow and challenge sides) is synchronous on one thread, so a
     // thread-static budget is request-scoped. Outside a Match call (direct calls) only the per-match timeout applies.
-    [ThreadStatic] private static long? _budgetLeft;   // Stopwatch ticks left in the open walk; null when none is active
+    [ThreadStatic] private static long? _budgetLeft;   // Stopwatch ticks left while the match decision is open; null when none is active
 
     internal static void OpenRequestBudget()
     {
