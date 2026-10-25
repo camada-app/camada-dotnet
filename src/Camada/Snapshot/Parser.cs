@@ -328,6 +328,11 @@ public static class Parser
             }
             if (inClass)
             {
+                if (ch == '[')
+                {
+                    sb.Append("\\[");   // JS: a bare [ in a class is a literal; .NET reads -[ as class subtraction
+                    continue;
+                }
                 inClass = ch != ']';
             }
             else if (ch == '[')

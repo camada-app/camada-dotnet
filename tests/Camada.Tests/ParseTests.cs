@@ -224,7 +224,16 @@ public class ParseTests
         Assert.Equal("\\[^]", Parser.JsToDotNet("\\[^]"));         // escaped: untouched
         Assert.Equal("x(?!)a]y", Parser.JsToDotNet("x[]a]y"));     // JS: empty class (never matches), then a literal ]
         Assert.Equal("\\[]", Parser.JsToDotNet("\\[]"));             // escaped: untouched
-        Assert.Equal("[a[]", Parser.JsToDotNet("[a[]"));           // inside a class: [ is not an opener
+        Assert.Equal("[a\\[]", Parser.JsToDotNet("[a[]"));          // inside a class: [ is a literal, escaped
+        Assert.Equal("x[a-z-\\[aeiou]]y", Parser.JsToDotNet("x[a-z-[aeiou]]y"));   // not .NET class subtraction
+        Assert.Equal("[\\[]", Parser.JsToDotNet("[\\[]"));           // already escaped: untouched
+        Assert.Matches(Parser.CompileRegex("^[!-[]$")!, "[");   // a range ending in [ used to fail to compile
+        foreach (var opts in new[] { true, false })
+        {
+            var sub = Parser.CompileRegex("x[a-z-[aeiou]]y", ignoreCase: opts)!;
+            Assert.Matches(sub, "xa]y");
+            Assert.DoesNotMatch(sub, "xby");
+        }
         Assert.Equal("\\\\c[\\s\\S]", Parser.JsToDotNet("\\c[^]"));   // JS: literal \c, then any char
         Assert.Equal("\\cz", Parser.JsToDotNet("\\cz"));           // \c + letter stays a control escape
         Assert.Equal("a\\\\c", Parser.JsToDotNet("a\\c"));         // trailing \c
