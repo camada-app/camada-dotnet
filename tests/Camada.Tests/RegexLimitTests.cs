@@ -11,7 +11,7 @@ namespace Camada.Tests;
 
 public class RegexLimitTests
 {
-    private const string Sha = "ec076bfb26f12f0f90ffa42bb7b975c6f905afdfe01ba2caeedf6295dd533696";
+    private const string Sha = "da294143dd317792b38abc7097bb8185bfac32833d13d7a043f2101794a7c13b";
     private const string Rel = "regex-limit/regex-limit-vectors.json";
 
     private static readonly JsonElement V = Fixtures.ReadJson(Rel);
@@ -81,6 +81,24 @@ public class RegexLimitTests
     {
         var rr = V.GetProperty("refused_rule");
         foreach (var row in V.GetProperty("refused").EnumerateArray())
+        {
+            var rule = Rule(rr.GetProperty("id").GetString()!, rr.GetProperty("action").GetString()!, rr.GetProperty("field").GetString()!, row.GetProperty("pattern").GetString()!);
+            var m = MatcherOf(rule);
+            foreach (var c in row.GetProperty("cases").EnumerateArray())
+            {
+                var input = new MatchInput { Ip = "8.8.8.8", Ua = Text(c.GetProperty("ua")) };
+                Assert.True(c.GetProperty("hit").GetProperty("native").GetBoolean() == Hit(m, input, (string)rule["id"]!), row.GetProperty("id").GetString());
+            }
+        }
+    }
+
+    [Fact]
+    public void AcceptedMatchRowsRunNatively()
+    {
+        var rr = V.GetProperty("refused_rule");
+        var rows = V.GetProperty("accepted_match").EnumerateArray().ToList();
+        Assert.NotEmpty(rows);
+        foreach (var row in rows)
         {
             var rule = Rule(rr.GetProperty("id").GetString()!, rr.GetProperty("action").GetString()!, rr.GetProperty("field").GetString()!, row.GetProperty("pattern").GetString()!);
             var m = MatcherOf(rule);
