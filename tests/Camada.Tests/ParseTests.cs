@@ -126,10 +126,10 @@ public class ParseTests
     public void MetaPathsRegexOnAPathOverTheCapBlocks()
     {
         var m = MetaRegex("[]", "^/never$");
-        var over = m.Match(new MatchInput { Path = "/" + new string('a', 2048) });
+        var over = m.Match(new MatchInput { Path = "/" + new string('a', Parser.MaxMatchInput) });
         Assert.True(over.Block);
         Assert.Equal("path", over.Reason);
-        Assert.False(m.Match(new MatchInput { Path = "/" + new string('a', 2047) }).Block);
+        Assert.False(m.Match(new MatchInput { Path = "/" + new string('a', Parser.MaxMatchInput - 1) }).Block);
     }
 
     [Fact]
