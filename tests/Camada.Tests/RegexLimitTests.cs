@@ -11,7 +11,7 @@ namespace Camada.Tests;
 
 public class RegexLimitTests
 {
-    private const string Sha = "d549b323af4ba9b863a401a474da77baee46711832d1ef4241986bafc0bffc15";
+    private const string Sha = "b8628729ffe24963f3bf868842f77f644f57edeb7ec0f179208160e3060fffbb";
     private const string Rel = "regex-limit/regex-limit-vectors.json";
 
     private static readonly JsonElement V = Fixtures.ReadJson(Rel);
