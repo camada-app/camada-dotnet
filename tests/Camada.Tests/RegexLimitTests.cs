@@ -11,7 +11,7 @@ namespace Camada.Tests;
 
 public class RegexLimitTests
 {
-    private const string Sha = "b01e86bd2bead280081f58d31f7f517131d8cafa6144b8c27fe868e3c3959d56";
+    private const string Sha = "d549b323af4ba9b863a401a474da77baee46711832d1ef4241986bafc0bffc15";
     private const string Rel = "regex-limit/regex-limit-vectors.json";
 
     private static readonly JsonElement V = Fixtures.ReadJson(Rel);
@@ -77,9 +77,10 @@ public class RegexLimitTests
     }
 
     [Theory]
-    [InlineData("refused")]
-    [InlineData("accepted_match")]
-    public void NativeRowsRunNatively(string key)
+    [InlineData("refused", "native")]
+    [InlineData("accepted_match", "native")]
+    [InlineData("astral_split", "dotnet")]
+    public void NativeRowsRunNatively(string key, string engine)
     {
         var rr = V.GetProperty("refused_rule");
         var rows = V.GetProperty(key).EnumerateArray().ToList();
@@ -91,7 +92,7 @@ public class RegexLimitTests
             foreach (var c in row.GetProperty("cases").EnumerateArray())
             {
                 var input = new MatchInput { Ip = "8.8.8.8", Ua = Text(c.GetProperty("ua")) };
-                Assert.True(c.GetProperty("hit").GetProperty("native").GetBoolean() == Hit(m, input, (string)rule["id"]!),
+                Assert.True(c.GetProperty("hit").GetProperty(engine).GetBoolean() == Hit(m, input, (string)rule["id"]!),
                     $"{row.GetProperty("id").GetString()} ua={c.GetProperty("ua").GetRawText()}");
             }
         }
