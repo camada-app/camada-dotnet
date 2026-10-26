@@ -44,7 +44,9 @@ public class RegexLimitTests
     [Fact]
     public void VectorsPinnedAndConstantsEqual()
     {
-        Assert.Equal(Sha, Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Fixtures.PathOf(Rel)))).ToLowerInvariant());
+        // The pin is of the LF file in camada-core; a Windows checkout may hand us CRLF.
+        var bytes = System.Text.Encoding.UTF8.GetBytes(File.ReadAllText(Fixtures.PathOf(Rel)).Replace("\r\n", "\n"));
+        Assert.Equal(Sha, Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant());
         var c = V.GetProperty("constants");
         Assert.Equal(Parser.MatchBudgetMs, c.GetProperty("MATCH_BUDGET_MS").GetInt32());
         Assert.Equal(Parser.RequestRegexBudgetMs, c.GetProperty("REQUEST_REGEX_BUDGET_MS").GetInt32());
