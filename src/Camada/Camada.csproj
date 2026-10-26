@@ -13,7 +13,7 @@
          source the sibling drift guards (camada-backend, camada-web, camada-mkt) parse, and CamadaVersion.cs
          repeats it; VersionTests holds the two together. Plain X.Y.Z only, and @camada/dotnet must stay in the
          analyst's SDK_NAMES: its sdkId drops anything else. -->
-    <Version>0.1.5</Version>
+    <Version>0.2.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>camada</Authors>
     <Description>camada SDK for .NET: inline enforcement of your snapshot (ordered custom rules, then allow, block, challenge), first-party beacon and proof-of-work challenge, batched event shipping. ASP.NET Core middleware.</Description>
