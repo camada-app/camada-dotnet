@@ -19,6 +19,10 @@
     <Description>camada SDK for .NET: inline enforcement of your snapshot (ordered custom rules, then allow, block, challenge), first-party beacon and proof-of-work challenge, batched event shipping. ASP.NET Core middleware.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://www.camada.app/docs/dotnet</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/camada-app/camada-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>camada;bot-detection;bot-protection;credential-stuffing;account-takeover;rate-limiting;proof-of-work;ai-scraper;aspnetcore;middleware;security</PackageTags>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 

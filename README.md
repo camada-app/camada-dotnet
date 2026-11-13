@@ -19,6 +19,14 @@ Next to it, not inside it: an SDK-style project compiles every `.cs` file under 
 Publishing is one decision with the npm packages (SDK-G01). .NET 8, no runtime dependencies beyond
 the ASP.NET Core shared framework.
 
+## Documentation
+
+- [.NET SDK guide](https://www.camada.app/docs/dotnet): options, `Camada.AspNetCore` middleware, and Kestrel proxy rules.
+- [ASP.NET Core quickstart](https://www.camada.app/docs/quickstart/aspnet): wire `AddCamada()` and `UseCamada()` in `Program.cs`.
+- [In-app bot detection](https://www.camada.app/bot-detection): how camada stops credential stuffing, fake signups, and scrapers.
+- [Test your bot signals](https://www.camada.app/tools/bot-test): live browser, HTTP, and TLS signal inspector.
+- [Docs](https://www.camada.app/docs) and [Pricing](https://www.camada.app/pricing): full reference and plan limits.
+
 ## Quickstart
 
 ```csharp
@@ -44,13 +52,13 @@ export CAMADA_KEY=<ingest_token>.<snap_token>
 export CAMADA_INGEST_URL=http://localhost:8787   # dev only; defaults to production ingest
 ```
 
-`AddCamada()` builds the engine when the container first resolves it — on the first request
+`AddCamada()` builds the engine when the container first resolves it, on the first request
 through the middleware. That build starts the snapshot poll on a background task and never
 blocks, so the request that triggered it is answered cold: it passes (fail open), and so does
 anything else that arrives before that first poll lands (a few hundred milliseconds against a
 local analyst; snapshot-size and network bound). To enforce from request 1, warm the engine at
-startup by waiting for the boot poll — a bounded loop, so an unreachable analyst leaves it cold
-and the app still starts and fails open:
+startup by waiting for the boot poll (a bounded loop, so an unreachable analyst leaves it cold
+and the app still starts and fails open):
 
 ```csharp
 // beside using Camada.AspNetCore; at the top of Program.cs
@@ -74,7 +82,7 @@ flight and then polls once more, on the network, before your app can start; the 
 returns the moment the boot poll lands.
 
 Without `CAMADA_KEY` the engine is inert (one log line, no requests, no enforcement). An app
-that reads its own config hands the values in through the options — credentials still travel as
+that reads its own config hands the values in through the options: credentials still travel as
 an environment map, never as constructor arguments:
 
 ```csharp
@@ -96,7 +104,7 @@ Outside the generic host (a bare `IApplicationBuilder`), `UseCamada()` alone fal
    (`poll_seconds`), with ETag/304 and gzip on the wire. `CAMADA_SERVERLESS=1` switches to a
    per-request staleness check with no timer. Every poll and event batch carries
    `x-camada-sdk: @camada/dotnet/<version>`, and polls ask for snapshot v5
-   (`x-camada-snapshot: 5`) — the container that carries your ordered custom rules.
+   (`x-camada-snapshot: 5`), the container that carries your ordered custom rules.
 2. Resolves the client from the socket peer (`HttpContext.Connection.RemoteIpAddress`), combined
    with `X-Forwarded-For` only under your tenant's trusted-proxy config (or `CAMADA_TRUSTED_PROXY`
    locally). A forwarded header on its own is never the ip: any caller can set it. Under `cidrs`
@@ -112,7 +120,7 @@ Outside the generic host (a bare `IApplicationBuilder`), `UseCamada()` alone fal
    address, where TCP always has a local one; or `AddCamada(o => o.UnixSocketListener = true)`)
    there is no peer: the walk reads `X-Forwarded-For` alone, trusting the front end on the socket
    to have written it. The listener decides this, never the shape of the peer. The SDK never reads
-   the peer through ASP.NET Core's forwarded-headers middleware — if you add
+   the peer through ASP.NET Core's forwarded-headers middleware: if you add
    `UseForwardedHeaders()`, keep `UseCamada()` before it, so camada judges the raw header itself.
 3. Enforces before anything else, beacon endpoints included: your ordered custom rules first (first
    match wins; they read ip, path, user-agent and request headers), then allow → block → challenge.
@@ -200,7 +208,7 @@ app.MapGet("/challenge-me", (HttpContext ctx) => ctx.CamadaServeChallenge() ?? R
 
 `sdk-dotnet` is an in-app tap: status, latency, session, the beacon's browser signals and your
 outcomes. The event carries the header order as `IHeaderDictionary` reports it (`hord`), which is
-not the wire's order under Kestrel. camada resolves ASN and country itself. Enforcement at this position covers ip, path, user-agent and header conditions —
+not the wire's order under Kestrel. camada resolves ASN and country itself. Enforcement at this position covers ip, path, user-agent and header conditions:
 ASN, country and TLS entries fail open in-app. `matches` patterns are JS regexes: they run on
 `Regex` in ECMAScript mode (named groups, `[^]`, `\cX`, and `\d`/`\w`/`\b` ASCII as JS reads them);
 a spelling that mode refuses is retried on the default engine, one neither accepts never matches
@@ -214,7 +222,7 @@ Two anchors read wider than in JS: `$` also matches before a final `\n`, and `.`
   tenant's `poll_seconds` keeps the cadence honest across a fleet.
 - Pending events drain on the host's `ApplicationStopping` within half a second, and every engine
   also drains on `ProcessExit` (what a bare `CamadaEngine.Default` relies on). No signal handlers
-  are installed — an app owns its own shutdown — so a process killed outright may drop its last
+  are installed (an app owns its own shutdown), so a process killed outright may drop its last
   batch.
 - Header middleware registered **before** `UseCamada()` that sets `Cache-Control` or
   `Content-Security-Policy` from `Response.OnStarting` wins on camada's own answers (the block
@@ -235,7 +243,7 @@ Two anchors read wider than in JS: `$` also matches before a final `\n`, and `.`
 ## Fail open
 
 Every entry point runs inside the fail-open envelope: a dead ingest drops telemetry (logged at
-most once a minute, through `ILogger` under `AddCamada()` or stderr otherwise — the message only,
+most once a minute, through `ILogger` under `AddCamada()` or stderr otherwise: the message only,
 never a stack trace), a corrupt snapshot keeps the previous one, a bug in the package costs the
 request its join, never its response. `CAMADA_DISABLED=1` bypasses everything. When a snapshot poll
 gets no usable answer (401, 5xx, a network failure), the blocks already loaded are kept and the next
