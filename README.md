@@ -175,6 +175,14 @@ The tag is `<script src="/_cam/b.js?r=<rid>" async>`, so the beacon joins the pa
 served it. Move both paths with `ScriptPath` / `FpPath` when `/_cam/` is not yours; the script
 derives the post path from its own URL, so the two must share a directory.
 
+The SDK vendors a tagged `@camada/browser` release. CI uses `.version` from
+`src/Camada/Resources/beacon.json` to check out `camada-browser` at `v<version>`. It builds that
+tag and compares the result byte for byte with the vendored beacon, so changes on
+`camada-browser` main cannot break this check. To update the beacon, check out the new release
+tag in the sibling `camada-browser` checkout and run `npm run build` there. Then run
+`scripts/sync-beacon.sh` from the SDK root and commit the result. The version bump moves CI to
+the new tag. Vendoring a different build from untagged main fails the check by design.
+
 ## App-context events
 
 ```csharp
@@ -257,8 +265,8 @@ dotnet format --verify-no-changes && dotnet build -warnaserror && dotnet test
 
 The suite reads the golden snapshot fixtures from the `camada-core` sibling checkout (or
 `CAMADA_FIXTURES_DIR`) and pins the vendored beacon to `camada-browser/dist/auto.global.js`
-(`npm run build` there first, then `scripts/sync-beacon.sh` after a beacon release; or
-`CAMADA_BROWSER_DIST`). Both fail by name when the checkout is missing rather than skipping.
+(check out the beacon release tag there, run `npm run build`, then run `scripts/sync-beacon.sh`;
+or `CAMADA_BROWSER_DIST`). Both fail by name when the checkout is missing rather than skipping.
 
 The version lives in one place, the `<Version>` element of `src/Camada/Camada.csproj` (what the
 sibling drift guards parse), repeated as `CamadaVersion.Value`; `VersionTests` holds the two
