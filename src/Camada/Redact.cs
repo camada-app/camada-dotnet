@@ -26,22 +26,27 @@ public static partial class Redact
     [GeneratedRegex("\\A[A-Za-z0-9+/_-]{40,}={0,2}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex B64Re();
 
+    [GeneratedRegex(@"^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,16}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex SchemeRe();
+
     public static readonly string[] RedactAllowlist = { "plan", "role", "locale", "ab_variant" };   // additions only, never narrowing
 
     private static bool SuspectValue(string v) => JwtRe().IsMatch(v) || HexRe().IsMatch(v) || B64Re().IsMatch(v);
 
     /// <summary>Lowercase A-Z only, then a substring search: ASCII-only case folding by construction.</summary>
-    private static bool NameHit(string n)
+    private static bool NameHit(string n) => NameRe().IsMatch(AsciiLower(n));
+
+    internal static string AsciiLower(string value)
     {
-        var c = n.ToCharArray();
+        var c = value.ToCharArray();
         for (var i = 0; i < c.Length; i++)
         {
             if (c[i] is >= 'A' and <= 'Z')
             {
-                c[i] = (char)(c[i] + 32);
+                c[i] = (char)(c[i] + ('a' - 'A'));
             }
         }
-        return NameRe().IsMatch(new string(c));
+        return new string(c);
     }
 
     // ASCII hex only, never a culture- or Unicode-aware digit test
@@ -180,9 +185,41 @@ public static partial class Redact
 
     /// <summary>Stable per-tenant pseudonym: HMAC-SHA256 keyed by the ingest token, labelled so the hash
     /// can never double as anything else, truncated to 32 hex chars. The raw identifier never leaves.</summary>
-    public static string HashUserId(string userId, string ingestToken)
+    public static string HashUserId(string userId, string ingestToken) => HashLabelled("uid:" + userId, ingestToken);
+
+    // A schemeless header has no safe prefix. Only a valid scheme followed by a space ever ships.
+    internal static string? AuthScheme(string? value)
     {
-        var mac = HMACSHA256.HashData(Encoding.UTF8.GetBytes(ingestToken), Encoding.UTF8.GetBytes("uid:" + userId));
+        var scheme = AuthScheme(value.AsSpan());
+        return scheme.IsEmpty ? null : scheme.ToString();
+    }
+
+    private static ReadOnlySpan<char> AuthScheme(ReadOnlySpan<char> value)
+    {
+        var sp = value.IndexOf(' ');
+        return sp > 0 && SchemeRe().IsMatch(value[..sp]) ? value[..sp] : default;
+    }
+
+    internal static string? Credential(string? value, bool schemeSplit)
+    {
+        var credential = value.AsSpan().Trim(" \t");
+        var scheme = schemeSplit ? AuthScheme(credential) : default;
+        if (!scheme.IsEmpty)
+        {
+            credential = credential[(scheme.Length + 1)..].TrimStart(" \t");
+        }
+        return credential.Length >= 8 && !credential.ContainsAnyExceptInRange(' ', '~') ? credential.ToString() : null;
+    }
+
+    internal static string? SelectCredential(IReadOnlyDictionary<string, string> first, string? tokenHeader) =>
+        (tokenHeader == null ? null : Credential(first.GetValueOrDefault(tokenHeader), schemeSplit: false))
+        ?? Credential(first.GetValueOrDefault("authorization"), schemeSplit: true);
+
+    internal static string HashToken(string credential, string ingestToken) => HashLabelled("tok:" + credential, ingestToken);
+
+    private static string HashLabelled(string message, string ingestToken)
+    {
+        var mac = HMACSHA256.HashData(Encoding.UTF8.GetBytes(ingestToken), Encoding.UTF8.GetBytes(message));
         return Convert.ToHexString(mac).ToLowerInvariant()[..32];
     }
 }

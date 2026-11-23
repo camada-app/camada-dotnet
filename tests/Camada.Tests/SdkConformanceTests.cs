@@ -17,6 +17,8 @@ public class SdkConformanceTests
 
     public static TheoryData<string> QueryCaseIds() => Ids("redact/query.json");
 
+    public static TheoryData<string> TokenCaseIds() => Ids("redact/token.json");
+
     private static TheoryData<string> Ids(string rel)
     {
         var data = new TheoryData<string>();
@@ -82,6 +84,38 @@ public class SdkConformanceTests
                 Assert.DoesNotContain(secret.GetString()!, json);
             }
         }
+    }
+
+    [Theory]
+    [MemberData(nameof(TokenCaseIds))]
+    public void TokenHash(string id)
+    {
+        var c = Case("redact/token.json", id);
+        var (header, invalid) = Config.ResolveTokenHeader(Str(c, "tokenHeader"), null);
+        Assert.False(invalid);
+        var key = Str(c, "key")!;
+        var first = c.GetProperty("headers").EnumerateObject()
+            .ToDictionary(p => p.Name, p => p.Value.GetString()!, StringComparer.Ordinal);
+        Assert.Equal(Str(c, "credential"), Redact.SelectCredential(first, header));
+
+        var req = new RequestInfo("GET", "shop.test", "/api/me", "", first.ToList(), "1.2.3.4", "1.1");
+        var ev = Builder.BuildWireEvent(req, tap: "sdk-dotnet", rid: "r1", token: new(header, v => Redact.HashToken(v, key)));
+        if (Str(c, "tk") is { } hash)
+        {
+            Assert.Equal(hash, ev["tk"]);
+        }
+        else
+        {
+            Assert.DoesNotContain("tk", ev.Keys);
+        }
+    }
+
+    [Fact]
+    public void TokenFixtureHasAllVersion1Cases()
+    {
+        var doc = Fixtures.ReadJson("redact/token.json");
+        Assert.Equal(1, doc.GetProperty("version").GetInt32());
+        Assert.Equal(22, doc.GetProperty("cases").GetArrayLength());
     }
 
     [Theory]

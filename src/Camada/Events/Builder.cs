@@ -1,8 +1,6 @@
 // Wire-event builder: reproduces the collector's record() (edge-analyst
 // workers/collector/edge-collector.js) from a normalized request, so events are comparable
 // across taps. HDRS bit order is pinned by the shared fixture (hdrs.json) — never reorder.
-using System.Text.RegularExpressions;
-
 namespace Camada.Events;
 
 public sealed record RequestInfo(
@@ -14,7 +12,9 @@ public sealed record RequestInfo(
     string? Ip,                                          // already resolved via trusted-proxy config
     string? HttpVersion);                                // e.g. '1.1'
 
-public static partial class Builder
+internal readonly record struct TokenConfig(string? Header, Func<string, string?>? Hash);
+
+public static class Builder
 {
     public static readonly string[] Hdrs =
     {
@@ -26,30 +26,15 @@ public static partial class Builder
 
     private static readonly Dictionary<string, int> HdrBit = Hdrs.Select((n, i) => (n, i)).ToDictionary(p => p.n, p => 1 << p.i, StringComparer.Ordinal);
 
-    // A schemeless header (`Authorization: <raw token>`) has no safe prefix: the first "word" IS
-    // the credential. Only a real auth-scheme token followed by a space ever ships.
-    [GeneratedRegex("^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,16}$", RegexOptions.CultureInvariant)]
-    private static partial Regex SchemeRe();
-
-    public static string? AuthScheme(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return null;
-        }
-        var sp = value.IndexOf(' ');
-        if (sp <= 0)
-        {
-            return null;
-        }
-        var scheme = value[..sp];
-        return SchemeRe().IsMatch(scheme) ? scheme : null;
-    }
+    public static string? AuthScheme(string? value) => Redact.AuthScheme(value);
 
     public static long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
     /// <summary>The mutable wire event; the caller fills st/dur on response-finish before enqueueing.</summary>
-    public static Dictionary<string, object?> BuildWireEvent(RequestInfo r, string tap, string rid, string? sid = null, bool newSession = false, string? ja4 = null)
+    public static Dictionary<string, object?> BuildWireEvent(RequestInfo r, string tap, string rid, string? sid = null, bool newSession = false, string? ja4 = null) =>
+        BuildWireEvent(r, tap, rid, token: default, sid: sid, newSession: newSession, ja4: ja4);
+
+    internal static Dictionary<string, object?> BuildWireEvent(RequestInfo r, string tap, string rid, TokenConfig token, string? sid = null, bool newSession = false, string? ja4 = null)
     {
         int mask = 0, hn = 0, hb = 0;
         var cookie = "";
@@ -111,6 +96,21 @@ public static partial class Builder
         if (!string.IsNullOrEmpty(ja4))
         {
             ev["ja4"] = ja4;
+        }
+        if (token.Hash is { } hash)
+        {
+            try
+            {
+                var credential = Redact.SelectCredential(first, token.Header);
+                if (credential != null && hash(credential) is { Length: > 0 } fingerprint)
+                {
+                    ev["tk"] = fingerprint;
+                }
+            }
+            catch
+            {
+                // Keep the request row and its verdict even if hashing fails.
+            }
         }
         ev["st"] = null;
         ev["dur"] = null;   // 'dur': the collector wire already claims 'lat' for latitude

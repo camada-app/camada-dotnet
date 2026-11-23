@@ -31,12 +31,13 @@ public sealed class CamadaEngine
 
     // Row keys only the SDK can attest (TLS/network facts, outcome, session, track()). A beacon body is the
     // visitor's, so these never ride a sig:1 row; the analyst joins them from the beacon's request row.
-    private static readonly string[] RequestRowKeys = { "tlsx", "ja4", "asn", "cc", "sid", "ns", "st", "dur", "rt", "blk", "rl", "wrn", "chs", "ch", "et", "uid" };
+    private static readonly string[] RequestRowKeys = { "tlsx", "ja4", "asn", "cc", "sid", "ns", "st", "dur", "rt", "blk", "rl", "wrn", "chs", "ch", "et", "uid", "tk", "bf", "upf" };
 
     private static readonly object DefaultLock = new();
     private static CamadaEngine? _default;
 
     private readonly Func<string, string?> _getEnv;
+    private TokenConfig _token;
     public string ScriptPath { get; }
     public string FpPath { get; }
     public string ChallengePath { get; }
@@ -49,6 +50,12 @@ public sealed class CamadaEngine
 
     /// <summary>Tests only: replaces the decision step so the fail-open envelope can be proven.</summary>
     internal Func<Req, byte[]?, Result>? DecideHook { get; set; }
+
+    internal Func<string, string?>? TokenHasher
+    {
+        get => _token.Hash;
+        set => _token = _token with { Hash = value };
+    }
 
     public CamadaEngine(CamadaOptions? options = null)
     {
@@ -64,6 +71,18 @@ public sealed class CamadaEngine
         {
             return;   // unconfigured or killed at boot: no loop, no exit hooks, truly silent
         }
+        var (header, invalid) = Config.ResolveTokenHeader(o.TokenHeader, _getEnv("CAMADA_TOKEN_HEADER"));
+        if (invalid)
+        {
+            Guarded.LogRateLimited("Invalid or forbidden token header name");
+        }
+        Func<string, string?>? hash = null;
+        if (Config.ResolveTokenHash(o.TokenHash, _getEnv("CAMADA_TOKEN_HASH")))
+        {
+            var ingestToken = Env.IngestToken;
+            hash = credential => Redact.HashToken(credential, ingestToken);
+        }
+        _token = new(header, hash);
         Snap = new SnapshotClient(
             Env.SnapshotUrl, Env.SnapToken, refreshS: o.RefreshS, mode: Env.Serverless ? SnapshotMode.Lazy : SnapshotMode.Timer,
             transport: o.Transport, sdk: CamadaVersion.SdkId, snapshotVersion: o.SnapshotVersion);
@@ -325,10 +344,10 @@ public sealed class CamadaEngine
         return new Passed(rid, setCookie, ctx, OnFinish);
     }
 
-    private static Dictionary<string, object?> Event(Req req, string rid, string? sid, bool newSession, string? ip)
+    private Dictionary<string, object?> Event(Req req, string rid, string? sid, bool newSession, string? ip)
     {
         var info = new RequestInfo(req.Method, req.Host, req.Path, req.Query, req.Headers, ip, req.HttpVersion);
-        return Builder.BuildWireEvent(info, tap: Tap, rid: rid, sid: sid, newSession: newSession);
+        return Builder.BuildWireEvent(info, tap: Tap, rid: rid, token: _token, sid: sid, newSession: newSession);
     }
 
     // ---- beacon ----

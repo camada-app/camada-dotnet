@@ -156,6 +156,8 @@ environment.
 | `RefreshS` | server-steered | poll cadence in seconds; set, it is pinned |
 | `Challenge` | `true` | serve the proof-of-work page for challenge verdicts (`CAMADA_CHALLENGE=0` too) |
 | `ChallengePath` | `/__camada/challenge` | where the page posts its solution |
+| `TokenHash` | off | include a credential hash on request rows |
+| `TokenHeader` | unset | try this extra credential header before `Authorization` |
 | `SnapshotVersion` | `5` | 4 drops your custom rules; 3 the allow/challenge sides too |
 | `ScriptPath` / `FpPath` | `/_cam/b.js` / `/_cam/fp` | the beacon endpoints; keep them in one directory |
 
@@ -163,6 +165,25 @@ Env: `CAMADA_KEY` (or `CAMADA_TOKEN` + `CAMADA_SNAPSHOT_TOKEN`), `CAMADA_INGEST_
 `CAMADA_SNAPSHOT_URL`, `CAMADA_TRUSTED_PROXY` (`none | vercel | hops:N | cidrs:a,b`),
 `CAMADA_SERVERLESS=1`, `CAMADA_CHALLENGE=0`, and the kill switch `CAMADA_DISABLED=1` (checked per
 request; set at boot, no timer starts at all).
+
+### Credential hashing
+
+Enable with `AddCamada(o => o.TokenHash = true)` or set `CAMADA_TOKEN_HASH=1`
+when `TokenHash` is unset. An explicit `false` overrides the environment.
+
+Set `TokenHeader` or `CAMADA_TOKEN_HEADER` to try an extra header such as
+`X-Api-Key` before `Authorization`. A non-empty option takes precedence.
+Header names can contain 1–64 ASCII letters, digits, or hyphens. The SDK
+ignores invalid names and reserves `Authorization`, `Cookie`, and `Set-Cookie`
+from use as the extra header.
+
+Credential hashing adds only `tk` to request rows. It contains the first
+32 lowercase hex characters of the HMAC-SHA256 of `tok:` plus the credential,
+keyed by the ingest token. The raw credential stays out of this field.
+`tk` is absent when hashing is off or neither header yields a credential.
+Use a dedicated header for random tokens or API keys. Keep hashing off for
+human passwords sent over Basic authentication. Kestrel may reject non-ASCII
+header values before camada sees them, in which case there is no `tk`.
 
 ## The first-party beacon
 
