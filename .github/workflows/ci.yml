@@ -17,8 +17,9 @@ jobs:
       - id: beacon
         shell: bash
         run: |
-          v=$(jq -r '.version // empty' camada-dotnet/src/Camada/Resources/beacon.json)
-          [ -n "$v" ] || { echo "::error::no vendored beacon version in camada-dotnet/src/Camada/Resources/beacon.json"; exit 1; }
+          f=camada-dotnet/src/Camada/Resources/beacon.json
+          v=$(jq -r '.version // empty' "$f")
+          [ -n "$v" ] || { echo "::error::no vendored beacon version in $f"; exit 1; }
           echo "ref=v$v" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         with:
