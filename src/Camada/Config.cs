@@ -1,6 +1,7 @@
 // Configuration shapes shared by the client and the engine. `ParseKey` splits CAMADA_KEY, and
 // `RemoteConfig` is what GET /snapshot hands back in x-camada-config (whitelisted server-side).
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Camada;
 
@@ -58,8 +59,28 @@ public sealed class RemoteConfig
         o.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
 }
 
-public static class Config
+public static partial class Config
 {
+    [GeneratedRegex(@"^[a-z0-9-]{1,64}\z", RegexOptions.CultureInvariant)]
+    private static partial Regex TokenHeaderRe();
+
+    internal static bool ResolveTokenHash(bool? option, string? env) => option ?? (env == "1");
+
+    internal static (string? Header, bool Invalid) ResolveTokenHeader(string? option, string? env)
+    {
+        var name = string.IsNullOrEmpty(option) ? env : option;
+        if (string.IsNullOrEmpty(name))
+        {
+            return (null, false);
+        }
+        name = Redact.AsciiLower(name);
+        if (!TokenHeaderRe().IsMatch(name) || name is "authorization" or "cookie" or "set-cookie")
+        {
+            return (null, true);
+        }
+        return (name, false);
+    }
+
     /// <summary>CAMADA_KEY is `&lt;ingest_token&gt;.&lt;snap_token&gt;` (printed by reconcile instructions and seed).</summary>
     public static (string Ingest, string Snap)? ParseKey(string? key)
     {

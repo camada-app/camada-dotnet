@@ -22,6 +22,12 @@ public sealed class CamadaOptions
 
     public string ChallengePath { get; set; } = CamadaEngine.DefaultChallengePath;
 
+    /// <summary>Ship a credential hash on request rows. Null uses CAMADA_TOKEN_HASH.</summary>
+    public bool? TokenHash { get; set; }
+
+    /// <summary>Try this header before Authorization. Null or empty uses CAMADA_TOKEN_HEADER.</summary>
+    public string? TokenHeader { get; set; }
+
     /// <summary>The app listens on a unix socket (Kestrel `ListenUnixSocket`) behind a front end: requests have no
     /// peer, and a cidrs trusted-proxy config walks X-Forwarded-For alone, trusting that front end to have written
     /// it. A Kestrel unix-socket or named-pipe listener is also recognised without it: its connections have neither a local

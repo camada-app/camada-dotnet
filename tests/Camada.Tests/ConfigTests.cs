@@ -17,6 +17,31 @@ public class ConfigTests
     [InlineData("tok.")]
     public void KeyRejectsMissingHalves(string? bad) => Assert.Null(Config.ParseKey(bad));
 
+    [Theory]
+    [InlineData(null, null, false)]
+    [InlineData(null, "1", true)]
+    [InlineData(null, "true", false)]
+    [InlineData(null, " 1", false)]
+    [InlineData(false, "1", false)]
+    [InlineData(true, null, true)]
+    public void TokenHashUsesExplicitOptionOrExactEnvValue(bool? option, string? env, bool expected) =>
+        Assert.Equal(expected, Config.ResolveTokenHash(option, env));
+
+    [Theory]
+    [InlineData("X-API-KEY", "X-ENV", "x-api-key", false)]
+    [InlineData(null, "X-ENV", "x-env", false)]
+    [InlineData("", "X-ENV", "x-env", false)]
+    [InlineData(null, "", null, false)]
+    [InlineData("X-API-KEY", "X-ENV", null, true)]
+    [InlineData("X-API-KEY\n", "X-ENV", null, true)]
+    [InlineData(" X-API-KEY", "X-ENV", null, true)]
+    [InlineData("Authorization", "X-ENV", null, true)]
+    [InlineData("COOKIE", "X-ENV", null, true)]
+    [InlineData("Set-Cookie", "X-ENV", null, true)]
+    [InlineData(null, "Bad:Name", null, true)]
+    public void TokenHeaderOnlyAcceptsAsciiNamesAndDoesNotFallBackOnErrors(string? option, string? env, string? expected, bool invalid) =>
+        Assert.Equal((expected, invalid), Config.ResolveTokenHeader(option, env));
+
     [Fact]
     public void RemoteConfigReadsOnlyAJsonObject()
     {

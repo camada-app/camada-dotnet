@@ -263,6 +263,105 @@ public class CaptureTests
     }
 }
 
+[Collection(SerialCollection.Name)]
+public class TokenHashTests
+{
+    private const string Credential = "fake-token-0001-not-a-real-credential";
+    private static readonly (string, string)[] Auth = { ("Authorization", "Bearer " + Credential) };
+
+    [Fact]
+    public void TokenHashIsAbsentByDefaultOnFinishAndBlock()
+    {
+        using var h = new Host(new FakeAnalyst());
+        Assert.Equal(200, h.Call(headers: Auth).Status);
+        Assert.Equal(403, h.Call(headers: Auth, peer: FakeAnalyst.BlockedIp).Status);
+
+        var events = h.Events();
+        Assert.Collection(events, row => Assert.Equal(200, row.I("st")), row => Assert.Equal(403, row.I("st")));
+        Assert.All(events, row => Assert.DoesNotContain("tk", row.Keys));
+    }
+
+    [Fact]
+    public void TokenHashRidesFinishBlockChallengeAndVerifyRows()
+    {
+        using var h = new Host(new FakeAnalyst { Container = "v4" }, configure: o => o.TokenHash = true);
+        Assert.Equal(200, h.Call(headers: Auth).Status);
+        Assert.Equal(403, h.Call(headers: Auth, peer: FakeAnalyst.BlockedIp).Status);
+
+        var challenge = h.Call(headers: EngineFx.Html.Concat(Auth).ToArray(), peer: FakeAnalyst.ChallengedIp);
+        Assert.Equal(403, challenge.Status);
+        Assert.Equal("1", challenge.Header("x-camada-challenge"));
+        var nonce = EngineFx.Nonce(challenge.Text);
+        var form = Encoding.UTF8.GetBytes($"nonce={nonce}&solution={Solver.Solve(nonce)}&to=%2F");
+        Assert.Equal(302, h.Call("POST", "/__camada/challenge", Auth, form, peer: FakeAnalyst.ChallengedIp).Status);
+        h.Engine.Track(EngineFx.Ctx(h.Seen[0]), "login");
+
+        var events = h.Events();
+        var expected = Redact.HashToken(Credential, "tok-test");
+        Assert.Collection(events,
+            row => Assert.Equal(200, row.I("st")),
+            row => Assert.Equal("ip4", row.S("blk")),
+            row => Assert.Equal("challenge", row.S("blk")),
+            row => Assert.Equal(1, row.I("ch")),
+            row => Assert.Equal("login", row.S("et")));
+        Assert.All(events.Take(4), row => Assert.Equal(expected, row.S("tk")));
+        Assert.DoesNotContain("tk", events[^1].Keys);
+        Assert.DoesNotContain(Credential, events.Json());
+    }
+
+    [Fact]
+    public void ThrowingTokenHasherPreservesTheAppResponseAndBlock()
+    {
+        using var h = new Host(new FakeAnalyst(), new() { ["CAMADA_TOKEN_HASH"] = "1" });
+        Assert.NotNull(h.Engine.TokenHasher);
+        var attempts = 0;
+        h.Engine.TokenHasher = _ =>
+        {
+            attempts++;
+            throw new InvalidOperationException(Credential);
+        };
+
+        var served = h.Call(headers: Auth);
+        Assert.Equal(200, served.Status);
+        Assert.Equal("hello", served.Text);
+        var blocked = h.Call(headers: Auth, peer: FakeAnalyst.BlockedIp);
+        Assert.Equal(403, blocked.Status);
+        Assert.Equal("Forbidden", blocked.Text);
+        Assert.Equal(2, attempts);
+
+        var events = h.Events();
+        Assert.Collection(events, row => Assert.Equal(200, row.I("st")), row => Assert.Equal(403, row.I("st")));
+        Assert.All(events, row => Assert.DoesNotContain("tk", row.Keys));
+    }
+
+    [Theory]
+    [InlineData("Bad:Name")]
+    [InlineData("Set-Cookie")]
+    public void RejectedTokenHeaderWarnsOnceWithoutUsingTheEnvHeader(string option)
+    {
+        var lines = new List<string>();
+        var old = Guarded.Sink;
+        Guarded.Sink = lines.Add;
+        Guarded.ResetForTests();
+        try
+        {
+            var env = new Dictionary<string, string?> { ["CAMADA_TOKEN_HASH"] = "1", ["CAMADA_TOKEN_HEADER"] = "x-api-key" };
+            using var h = new Host(new FakeAnalyst(), env, configure: o => o.TokenHeader = option);
+            using var other = new Host(new FakeAnalyst(), env, configure: o => o.TokenHeader = option);
+            Assert.Equal(200, h.Call(headers: Auth.Append(("x-api-key", "fake-extra-0001")).ToArray()).Status);
+            Assert.Equal(Redact.HashToken(Credential, "tok-test"), Assert.Single(h.Events()).S("tk"));
+            var line = Assert.Single(lines);
+            Assert.Contains("token header name", line);
+            Assert.DoesNotContain(option, line, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Guarded.Sink = old;
+            Guarded.ResetForTests();
+        }
+    }
+}
+
 public class TrackTests
 {
     [Fact]
@@ -335,7 +434,7 @@ public class BeaconEndpointTests
         var a = new FakeAnalyst();
         EngineFx.Hops1(a);
         using var h = new Host(a);
-        var keys = new[] { "tlsx", "ja4", "asn", "cc", "sid", "ns", "st", "dur", "rt", "blk", "rl", "wrn", "chs", "ch", "et", "uid" };
+        var keys = new[] { "tlsx", "ja4", "asn", "cc", "sid", "ns", "st", "dur", "rt", "blk", "rl", "wrn", "chs", "ch", "et", "uid", "tk", "bf", "upf" };
         var forged = new Dictionary<string, object> { ["rid"] = "r-1", ["tz"] = "UTC" };
         foreach (var k in keys)
         {

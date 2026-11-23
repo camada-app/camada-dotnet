@@ -18,9 +18,40 @@ public class BuildTests
         Assert.Equal("Basic", Builder.AuthScheme("Basic dXNlcjpwYXNz"));
         Assert.Null(Builder.AuthScheme("rawtoken"));
         Assert.Null(Builder.AuthScheme(" Bearer x"));
+        Assert.Null(Builder.AuthScheme("Bearer\n fake-token-0001"));
         Assert.Null(Builder.AuthScheme(new string('a', 17) + " x"));
         Assert.Null(Builder.AuthScheme(null));
     }
+
+    [Fact]
+    public void TokenHashUsesOnlyTheFirstValueOfEachHeader()
+    {
+        var headers = new[]
+        {
+            H("X-Api-Key", "short"), H("x-api-key", "fake-extra-0001"),
+            H("Authorization", "Bearer fake-token-0001"), H("authorization", "Bearer fake-token-0002"),
+        };
+        var ev = Builder.BuildWireEvent(Req(headers), tap: "sdk-dotnet", rid: "r1",
+            token: new("x-api-key", credential => Redact.HashToken(credential, "test-key")));
+        Assert.Equal(Redact.HashToken("fake-token-0001", "test-key"), ev["tk"]);
+    }
+
+    [Fact]
+    public void ThrowingTokenHasherLeavesTheRequestRowIntact()
+    {
+        var ev = Builder.BuildWireEvent(Req(new[] { H("Authorization", "Bearer fake-token-0001") }), tap: "sdk-dotnet", rid: "r1",
+            token: new(null, _ => throw new InvalidOperationException("hash unavailable")));
+        Assert.Equal("r1", ev["rid"]);
+        Assert.Equal("Bearer", ev["auth"]);
+        Assert.DoesNotContain("tk", ev.Keys);
+    }
+
+    [Theory]
+    [InlineData("Bearer\n fake-token-0001")]
+    [InlineData("Bearer fake-token-0001\n")]
+    [InlineData("\u00a0Bearer fake-token-0001")]
+    public void CredentialDoesNotAcceptNewlinesOrUnicodeWhitespace(string value) =>
+        Assert.Null(Redact.Credential(value, schemeSplit: true));
 
     [Fact]
     public void RefererShipsWithItsCredentialsScrubbed()
