@@ -27,7 +27,7 @@ public static partial class Redact
     private static partial Regex B64Re();
 
     [GeneratedRegex(@"^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,16}\z", RegexOptions.CultureInvariant)]
-    internal static partial Regex SchemeRe();
+    private static partial Regex SchemeRe();
 
     public static readonly string[] RedactAllowlist = { "plan", "role", "locale", "ab_variant" };   // additions only, never narrowing
 
@@ -187,16 +187,33 @@ public static partial class Redact
     /// can never double as anything else, truncated to 32 hex chars. The raw identifier never leaves.</summary>
     public static string HashUserId(string userId, string ingestToken) => HashLabelled("uid:" + userId, ingestToken);
 
+    // A schemeless header has no safe prefix. Only a valid scheme followed by a space ever ships.
+    internal static string? AuthScheme(string? value)
+    {
+        var scheme = AuthScheme(value.AsSpan());
+        return scheme.IsEmpty ? null : scheme.ToString();
+    }
+
+    private static ReadOnlySpan<char> AuthScheme(ReadOnlySpan<char> value)
+    {
+        var sp = value.IndexOf(' ');
+        return sp > 0 && SchemeRe().IsMatch(value[..sp]) ? value[..sp] : default;
+    }
+
     internal static string? Credential(string? value, bool schemeSplit)
     {
         var credential = value.AsSpan().Trim(" \t");
-        var sp = schemeSplit ? credential.IndexOf(' ') : -1;
-        if (sp > 0 && SchemeRe().IsMatch(credential[..sp]))
+        var scheme = schemeSplit ? AuthScheme(credential) : default;
+        if (!scheme.IsEmpty)
         {
-            credential = credential[(sp + 1)..].TrimStart(" \t");
+            credential = credential[(scheme.Length + 1)..].TrimStart(" \t");
         }
         return credential.Length >= 8 && !credential.ContainsAnyExceptInRange(' ', '~') ? credential.ToString() : null;
     }
+
+    internal static string? SelectCredential(IReadOnlyDictionary<string, string> first, string? tokenHeader) =>
+        (tokenHeader == null ? null : Credential(first.GetValueOrDefault(tokenHeader), schemeSplit: false))
+        ?? Credential(first.GetValueOrDefault("authorization"), schemeSplit: true);
 
     internal static string HashToken(string credential, string ingestToken) => HashLabelled("tok:" + credential, ingestToken);
 

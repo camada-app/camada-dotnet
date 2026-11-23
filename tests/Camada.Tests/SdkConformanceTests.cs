@@ -94,13 +94,11 @@ public class SdkConformanceTests
         var (header, invalid) = Config.ResolveTokenHeader(Str(c, "tokenHeader"), null);
         Assert.False(invalid);
         var key = Str(c, "key")!;
-        var values = c.GetProperty("headers");
-        var credential = (header == null ? null : Redact.Credential(Str(values, header), schemeSplit: false))
-            ?? Redact.Credential(Str(values, "authorization"), schemeSplit: true);
-        Assert.Equal(Str(c, "credential"), credential);
+        var first = c.GetProperty("headers").EnumerateObject()
+            .ToDictionary(p => p.Name, p => p.Value.GetString()!, StringComparer.Ordinal);
+        Assert.Equal(Str(c, "credential"), Redact.SelectCredential(first, header));
 
-        var headers = values.EnumerateObject().Select(p => new KeyValuePair<string, string>(p.Name, p.Value.GetString()!)).ToList();
-        var req = new RequestInfo("GET", "shop.test", "/api/me", "", headers, "1.2.3.4", "1.1");
+        var req = new RequestInfo("GET", "shop.test", "/api/me", "", first.ToList(), "1.2.3.4", "1.1");
         var ev = Builder.BuildWireEvent(req, tap: "sdk-dotnet", rid: "r1", token: new(header, v => Redact.HashToken(v, key)));
         if (Str(c, "tk") is { } hash)
         {

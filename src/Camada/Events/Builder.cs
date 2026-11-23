@@ -26,22 +26,7 @@ public static class Builder
 
     private static readonly Dictionary<string, int> HdrBit = Hdrs.Select((n, i) => (n, i)).ToDictionary(p => p.n, p => 1 << p.i, StringComparer.Ordinal);
 
-    // A schemeless header (`Authorization: <raw token>`) has no safe prefix: the first "word" IS
-    // the credential. Only a real auth-scheme token followed by a space ever ships.
-    public static string? AuthScheme(string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return null;
-        }
-        var sp = value.IndexOf(' ');
-        if (sp <= 0)
-        {
-            return null;
-        }
-        var scheme = value[..sp];
-        return Redact.SchemeRe().IsMatch(scheme) ? scheme : null;
-    }
+    public static string? AuthScheme(string? value) => Redact.AuthScheme(value);
 
     public static long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
@@ -116,8 +101,7 @@ public static class Builder
         {
             try
             {
-                var credential = (token.Header is { } header ? Redact.Credential(H(header), schemeSplit: false) : null)
-                    ?? Redact.Credential(H("authorization"), schemeSplit: true);
+                var credential = Redact.SelectCredential(first, token.Header);
                 if (credential != null && hash(credential) is { Length: > 0 } fingerprint)
                 {
                     ev["tk"] = fingerprint;

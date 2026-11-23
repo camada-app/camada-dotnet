@@ -37,7 +37,7 @@ public sealed class CamadaEngine
     private static CamadaEngine? _default;
 
     private readonly Func<string, string?> _getEnv;
-    private readonly string? _tokenHeader;
+    private TokenConfig _token;
     public string ScriptPath { get; }
     public string FpPath { get; }
     public string ChallengePath { get; }
@@ -51,7 +51,11 @@ public sealed class CamadaEngine
     /// <summary>Tests only: replaces the decision step so the fail-open envelope can be proven.</summary>
     internal Func<Req, byte[]?, Result>? DecideHook { get; set; }
 
-    internal Func<string, string?>? TokenHasher { get; set; }
+    internal Func<string, string?>? TokenHasher
+    {
+        get => _token.Hash;
+        set => _token = _token with { Hash = value };
+    }
 
     public CamadaEngine(CamadaOptions? options = null)
     {
@@ -68,16 +72,17 @@ public sealed class CamadaEngine
             return;   // unconfigured or killed at boot: no loop, no exit hooks, truly silent
         }
         var (header, invalid) = Config.ResolveTokenHeader(o.TokenHeader, _getEnv("CAMADA_TOKEN_HEADER"));
-        _tokenHeader = header;
         if (invalid)
         {
             Guarded.LogRateLimited("Invalid or forbidden token header name");
         }
+        Func<string, string?>? hash = null;
         if (Config.ResolveTokenHash(o.TokenHash, _getEnv("CAMADA_TOKEN_HASH")))
         {
             var ingestToken = Env.IngestToken;
-            TokenHasher = credential => Redact.HashToken(credential, ingestToken);
+            hash = credential => Redact.HashToken(credential, ingestToken);
         }
+        _token = new(header, hash);
         Snap = new SnapshotClient(
             Env.SnapshotUrl, Env.SnapToken, refreshS: o.RefreshS, mode: Env.Serverless ? SnapshotMode.Lazy : SnapshotMode.Timer,
             transport: o.Transport, sdk: CamadaVersion.SdkId, snapshotVersion: o.SnapshotVersion);
@@ -342,7 +347,7 @@ public sealed class CamadaEngine
     private Dictionary<string, object?> Event(Req req, string rid, string? sid, bool newSession, string? ip)
     {
         var info = new RequestInfo(req.Method, req.Host, req.Path, req.Query, req.Headers, ip, req.HttpVersion);
-        return Builder.BuildWireEvent(info, tap: Tap, rid: rid, token: new(_tokenHeader, TokenHasher), sid: sid, newSession: newSession);
+        return Builder.BuildWireEvent(info, tap: Tap, rid: rid, token: _token, sid: sid, newSession: newSession);
     }
 
     // ---- beacon ----
