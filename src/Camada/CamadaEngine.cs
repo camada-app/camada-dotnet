@@ -74,7 +74,7 @@ public sealed class CamadaEngine
         var (header, invalid) = Config.ResolveTokenHeader(o.TokenHeader, _getEnv("CAMADA_TOKEN_HEADER"));
         if (invalid)
         {
-            Guarded.LogRateLimited("Invalid or forbidden token header name");
+            Guarded.WarnRateLimited("Invalid or forbidden token header name");
         }
         Func<string, string?>? hash = null;
         if (Config.ResolveTokenHash(o.TokenHash, _getEnv("CAMADA_TOKEN_HASH")))
