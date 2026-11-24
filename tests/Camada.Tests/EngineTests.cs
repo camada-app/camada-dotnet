@@ -365,6 +365,7 @@ public class TokenHashTests
     }
 }
 
+[Collection(SerialCollection.Name)]
 public class UnconfiguredBootTests
 {
     [Fact]
