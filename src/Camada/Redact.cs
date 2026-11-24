@@ -38,15 +38,21 @@ public static partial class Redact
 
     internal static string AsciiLower(string value)
     {
-        var c = value.ToCharArray();
-        for (var i = 0; i < c.Length; i++)
+        var start = value.AsSpan().IndexOfAnyInRange('A', 'Z');
+        if (start < 0)
         {
-            if (c[i] is >= 'A' and <= 'Z')
-            {
-                c[i] = (char)(c[i] + ('a' - 'A'));
-            }
+            return value;
         }
-        return new string(c);
+        return string.Create(value.Length, (value, start), static (chars, state) =>
+        {
+            var (source, firstUpper) = state;
+            source.AsSpan(0, firstUpper).CopyTo(chars);
+            for (var i = firstUpper; i < source.Length; i++)
+            {
+                var c = source[i];
+                chars[i] = c is >= 'A' and <= 'Z' ? (char)(c + ('a' - 'A')) : c;
+            }
+        });
     }
 
     // ASCII hex only, never a culture- or Unicode-aware digit test
