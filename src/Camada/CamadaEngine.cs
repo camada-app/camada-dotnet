@@ -98,7 +98,7 @@ public sealed class CamadaEngine
         var e = new CamadaEngine(options);
         if (e.Env == null)
         {
-            Guarded.LogRateLimited("CAMADA_KEY (or CAMADA_TOKEN + CAMADA_SNAPSHOT_TOKEN) not set — camada is inactive");
+            Guarded.WarnRateLimited("CAMADA_KEY (or CAMADA_TOKEN + CAMADA_SNAPSHOT_TOKEN) not set — camada is inactive");
         }
         return e;
     }

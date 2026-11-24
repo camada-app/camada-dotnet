@@ -365,6 +365,33 @@ public class TokenHashTests
     }
 }
 
+public class UnconfiguredBootTests
+{
+    [Fact]
+    public void WarnsAsConfigAndLeavesTheErrorBudget()
+    {
+        var lines = new List<string>();
+        var old = Guarded.Sink;
+        Guarded.Sink = lines.Add;
+        Guarded.ResetForTests();
+        try
+        {
+            CamadaEngine.Create(new CamadaOptions { Env = new Dictionary<string, string?>() });
+            Guarded.LogRateLimited(new InvalidOperationException("sdk bug"));
+            Assert.Equal(new[]
+            {
+                "[camada] config warning: CAMADA_KEY (or CAMADA_TOKEN + CAMADA_SNAPSHOT_TOKEN) not set — camada is inactive",
+                "[camada] suppressed error (SDK fails open): InvalidOperationException: sdk bug"
+            }, lines);
+        }
+        finally
+        {
+            Guarded.Sink = old;
+            Guarded.ResetForTests();
+        }
+    }
+}
+
 public class TrackTests
 {
     [Fact]
