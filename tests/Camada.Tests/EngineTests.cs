@@ -347,12 +347,15 @@ public class TokenHashTests
         {
             var env = new Dictionary<string, string?> { ["CAMADA_TOKEN_HASH"] = "1", ["CAMADA_TOKEN_HEADER"] = "x-api-key" };
             using var h = new Host(new FakeAnalyst(), env, configure: o => o.TokenHeader = option);
+            Guarded.LogRateLimited(new InvalidOperationException("sdk bug"));
             using var other = new Host(new FakeAnalyst(), env, configure: o => o.TokenHeader = option);
             Assert.Equal(200, h.Call(headers: Auth.Append(("x-api-key", "fake-extra-0001")).ToArray()).Status);
             Assert.Equal(Redact.HashToken(Credential, "tok-test"), Assert.Single(h.Events()).S("tk"));
-            var line = Assert.Single(lines);
-            Assert.Contains("token header name", line);
-            Assert.DoesNotContain(option, line, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(new[]
+            {
+                "[camada] config warning: Invalid or forbidden token header name",
+                "[camada] suppressed error (SDK fails open): InvalidOperationException: sdk bug"
+            }, lines);
         }
         finally
         {

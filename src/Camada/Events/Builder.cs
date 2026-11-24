@@ -42,7 +42,7 @@ public static class Builder
         var first = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (name, value) in r.Headers ?? Array.Empty<KeyValuePair<string, string>>())
         {
-            var k = name.ToLowerInvariant();
+            var k = Redact.AsciiLower(name);
             hn++;
             hb += name.Length + value.Length;
             names.Add(k);

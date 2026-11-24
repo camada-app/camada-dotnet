@@ -41,6 +41,17 @@ public class MiddlewareTests
         Assert.Null(req.Header("x-nope"));
     }
 
+    [Fact]
+    public void RequestHeaderNamesAreLowercasedAsciiOnly()
+    {
+        using var h = new Host(new FakeAnalyst(), configure: o => { o.TokenHash = true; o.TokenHeader = "x-api-key"; });
+        Assert.Equal(200, h.Call(headers: new[] { ("X-Api-\u212Aey", "fake-token-0001") }).Status);
+
+        var row = Assert.Single(h.Events());
+        Assert.Contains("x-api-\u212Aey", row.S("hord")!.Split(','));
+        Assert.DoesNotContain("tk", row.Keys);
+    }
+
     // C6 v3 adapter row (dotnet): RemoteIpAddress is the peer; null on a TCP listener = unreadable (no client ip,
     // never the XFF walk); a unix-socket listener has no peer, so cidrs walks X-Forwarded-For alone.
     [Theory]

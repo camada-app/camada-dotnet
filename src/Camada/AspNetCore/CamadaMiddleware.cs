@@ -81,7 +81,7 @@ public sealed class CamadaMiddleware
         var headers = new List<KeyValuePair<string, string>>();
         foreach (var (k, vs) in r.Headers)
         {
-            var name = k.ToLowerInvariant();
+            var name = Redact.AsciiLower(k);
             foreach (var v in vs)
             {
                 headers.Add(new(name, v ?? ""));
