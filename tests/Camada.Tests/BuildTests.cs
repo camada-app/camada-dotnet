@@ -37,6 +37,20 @@ public class BuildTests
     }
 
     [Fact]
+    public void TokenHeaderNamesAreLowercasedAsciiOnly()
+    {
+        const string value = "fake-token-0001";
+        var token = new TokenConfig("x-api-key", credential => Redact.HashToken(credential, "test-key"));
+        var ev = Builder.BuildWireEvent(Req(new[] { H("X-Api-\u212Aey", value) }), tap: "sdk-dotnet", rid: "r1", token: token);
+        Assert.DoesNotContain("tk", ev.Keys);
+        Assert.Equal("x-api-\u212Aey", ev["hord"]);
+
+        ev = Builder.BuildWireEvent(Req(new[] { H("X-Api-Key", value) }), tap: "sdk-dotnet", rid: "r1", token: token);
+        Assert.Equal(Redact.HashToken(value, "test-key"), ev["tk"]);
+        Assert.Equal("x-api-key", ev["hord"]);
+    }
+
+    [Fact]
     public void ThrowingTokenHasherLeavesTheRequestRowIntact()
     {
         var ev = Builder.BuildWireEvent(Req(new[] { H("Authorization", "Bearer fake-token-0001") }), tap: "sdk-dotnet", rid: "r1",
